@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
-import { Sirene as Siren, Vote, CheckCircle, Skull, Clock, UserCheck, AlertTriangle } from "lucide-react";
+import { Siren, Vote, CheckCircle, Skull, Clock, UserCheck, AlertTriangle } from "lucide-react";
 
 interface PlayerVoteState {
   id: string;

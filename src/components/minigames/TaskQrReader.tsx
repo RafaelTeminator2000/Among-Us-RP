@@ -1,16 +1,21 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { Html5QrcodeScanner } from "html5-qrcode";
 import { QrCode, Camera, Flashlight, AlertCircle, CheckCircle2, X, Keyboard } from "lucide-react";
 
 interface TaskQrReaderProps {
-  onScanSuccess: (code: string) => void;
+  expectedToken?: string;
+  onVerificationSuccess?: () => void;
+  onScanSuccess?: (code: string) => void;
   onCancel?: () => void;
   expectedTaskTitle?: string;
   expectedTaskLocation?: string;
 }
 
 export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
+  expectedToken,
+  onVerificationSuccess,
   onScanSuccess,
   onCancel,
   expectedTaskTitle,
@@ -48,6 +53,13 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
   };
 
   const triggerSuccess = (code: string) => {
+    // Validação Phygital: Se expectedToken for especificado, verificar se o QR Code bate com o token do nó
+    if (expectedToken && code.trim() !== expectedToken.trim()) {
+      setErrorMessage("QR Code incorreto! Você está no local errado para esta tarefa.");
+      return;
+    }
+
+    setErrorMessage(null);
     setIsScanned(true);
     setScannedCode(code);
     playBeep();
@@ -55,7 +67,8 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
       navigator.vibrate([100, 50, 100]);
     }
     setTimeout(() => {
-      onScanSuccess(code);
+      if (onVerificationSuccess) onVerificationSuccess();
+      if (onScanSuccess) onScanSuccess(code);
     }, 1200);
   };
 
