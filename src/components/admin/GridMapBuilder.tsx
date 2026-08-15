@@ -109,7 +109,7 @@ export const GridMapBuilder: React.FC<GridMapBuilderProps> = ({
           .from('rooms')
           .select('map_data')
           .eq('id', roomId)
-          .single();
+          .maybeSingle();
 
         if (!error && data?.map_data) {
           const remoteData = data.map_data as unknown as MapData;

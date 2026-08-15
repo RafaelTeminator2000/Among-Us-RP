@@ -90,7 +90,7 @@ export async function createRoomAction(): Promise<{ error?: string; roomId?: str
         host_id: hostId as any,
       })
       .select('id, code')
-      .single();
+      .maybeSingle();
 
     if (roomError || !room) {
       console.warn('[createRoomAction] Aviso ao inserir sala no banco (RLS/Permissão). Ativando fallback de sala dinâmica:', roomError?.message || roomError);
@@ -136,14 +136,25 @@ export async function joinRoomAction(
   const { playerName, code } = validation.data;
   const supabase = await createClient();
   let targetRoomId: string | null = null;
+  let targetRoomCode: string = code;
 
   try {
+    // 1. Garantir que o convidado tenha sessão anônima para satisfazer RLS do Supabase
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) {
+        await supabase.auth.signInAnonymously();
+      }
+    } catch (authErr) {
+      console.warn('[joinRoomAction] Aviso ao autenticar anonimamente:', authErr);
+    }
+
     // 2. Buscar a sala pelo código de 4 caracteres
     const { data: room, error: roomError } = await supabase
       .from('rooms')
       .select('id, status, code')
       .eq('code', code)
-      .single();
+      .maybeSingle();
 
     if (roomError || !room) {
       console.warn('[joinRoomAction] Sala não localizada no DB ou RLS restritivo. Redirecionando via código:', code);
@@ -153,9 +164,10 @@ export async function joinRoomAction(
         return { error: 'Esta partida já foi encerrada.' };
       }
       targetRoomId = room.id;
+      if (room.code) targetRoomCode = room.code;
     }
 
-    // 3. Escolher cor aleatória
+    // 3. Escolher cor aleatória e gerar ID
     const randomColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
     const playerId = crypto.randomUUID();
 
@@ -183,7 +195,7 @@ export async function joinRoomAction(
   }
 
   if (targetRoomId) {
-    redirect(`/room/${targetRoomId}`);
+    redirect(`/room/${targetRoomId}?code=${targetRoomCode}`);
   }
 
   return {};

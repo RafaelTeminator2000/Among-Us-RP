@@ -1,24 +1,26 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRealtimeGame } from '@/lib/realtime-game';
 import { useGameAudio } from '@/hooks/use-game-audio';
-import { Shield, AlertTriangle, Users, CheckCircle2, Volume2, VolumeX, Radio, Zap } from 'lucide-react';
+import { Shield, AlertTriangle, Users, CheckCircle2, Volume2, VolumeX, Radio, Zap, FastForward } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PlayerGameState } from '@/types/game';
 import { GameSummaryPanel, GameEventRecord } from '@/components/tv/GameSummaryPanel';
 
 interface TVDashboardProps {
   roomId: string;
+  roomCode?: string;
   initialPlayers?: PlayerGameState[];
 }
 
-export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProps) {
+export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers = [] }: TVDashboardProps) {
   const [players, setPlayers] = useState<PlayerGameState[]>(initialPlayers);
   const [gameState, setGameState] = useState<'LOBBY' | 'PLAYING' | 'EMERGENCY_MEETING' | 'ENDED' | 'FINISHED'>('LOBBY');
   const [isLightsSabotaged, setIsLightsSabotaged] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [gameEvents, setGameEvents] = useState<GameEventRecord[]>([]);
+  const [displayCode, setDisplayCode] = useState<string>(propRoomCode || roomId.substring(0, 4).toUpperCase());
 
   const { initAudio, playSiren, playEmergencyBuzzer, stopAll } = useGameAudio();
   const supabase = createClient();
@@ -29,50 +31,68 @@ export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProp
       typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
     const fetchInitialTVData = async () => {
-      if (!isValidUuid(roomId)) return;
+      let targetUuid = roomId;
 
-      // Buscar status e sabotagem da sala
-      const { data: room } = await supabase
-        .from('rooms')
-        .select('*')
-        .eq('id', roomId)
-        .single();
+      if (!isValidUuid(roomId)) {
+        const { data: roomByCode } = await supabase
+          .from('rooms')
+          .select('*')
+          .eq('code', roomId.toUpperCase())
+          .maybeSingle();
 
-      if (room) {
-        if (room.status) setGameState(room.status as any);
-        if ((room as any).is_lights_sabotaged) setIsLightsSabotaged(true);
+        if (roomByCode) {
+          targetUuid = roomByCode.id;
+          if (roomByCode.code) setDisplayCode(roomByCode.code);
+          if (roomByCode.status) setGameState(roomByCode.status as any);
+          if ((roomByCode as any).is_lights_sabotaged) setIsLightsSabotaged(true);
+        }
+      } else {
+        const { data: room } = await supabase
+          .from('rooms')
+          .select('*')
+          .eq('id', roomId)
+          .maybeSingle();
+
+        if (room) {
+          if (room.code) setDisplayCode(room.code);
+          if (room.status) setGameState(room.status as any);
+          if ((room as any).is_lights_sabotaged) setIsLightsSabotaged(true);
+        }
       }
 
-      // Buscar jogadores cadastrados
-      const { data: playersData } = await supabase
-        .from('room_players')
-        .select('id, player_name, color_hex, role, status, completed_tasks')
-        .eq('room_id', roomId);
+      if (isValidUuid(targetUuid)) {
+        // Buscar jogadores cadastrados
+        const { data: playersData } = await supabase
+          .from('room_players')
+          .select('id, player_name, color_hex, role, status, completed_tasks')
+          .eq('room_id', targetUuid);
 
-      if (playersData) {
-        const formatted: PlayerGameState[] = playersData.map((p) => ({
-          id: p.id,
-          nickname: p.player_name,
-          color: p.color_hex || '#3b82f6',
-          role: p.role as any,
-          is_alive: p.status === 'ALIVE',
-          is_host: false,
-          completed_tasks: Array.isArray(p.completed_tasks) ? p.completed_tasks.length : 0,
-          total_tasks: 4,
-          has_voted: false,
-          voted_for_id: null,
-        }));
-        setPlayers(formatted);
-      }
-      // Buscar histórico de eventos da sala para estatísticas finais
-      const { data: eventsData } = await supabase
-        .from('game_events')
-        .select('*')
-        .eq('room_id', roomId)
-        .order('created_at', { ascending: true });
+        if (playersData && playersData.length > 0) {
+          const formatted: PlayerGameState[] = playersData.map((p) => ({
+            id: p.id,
+            nickname: p.player_name,
+            color: p.color_hex || '#3b82f6',
+            role: p.role as any,
+            is_alive: p.status === 'ALIVE',
+            is_host: false,
+            completed_tasks: Array.isArray(p.completed_tasks) ? p.completed_tasks.length : 0,
+            total_tasks: 4,
+            has_voted: false,
+            voted_for_id: null,
+          }));
+          setPlayers(formatted);
+        }
 
-      if (eventsData) {
-        setGameEvents(eventsData as GameEventRecord[]);
+        // Buscar histórico de eventos da sala para estatísticas finais
+        const { data: eventsData } = await supabase
+          .from('game_events')
+          .select('*')
+          .eq('room_id', targetUuid)
+          .order('created_at', { ascending: true });
+
+        if (eventsData) {
+          setGameEvents(eventsData as GameEventRecord[]);
+        }
       }
     };
 
@@ -82,18 +102,28 @@ export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProp
   // Buscar eventos atualizados sempre que o estado transitar para ENDED ou FINISHED
   useEffect(() => {
     if (gameState === 'ENDED' || gameState === 'FINISHED') {
-      stopAll(); // Garantir que todos os alarmes parem de tocar
+      stopAll(); // Parar todos os alarmes
 
       const fetchEvents = async () => {
         const isValidUuid = (str?: string) =>
           typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
-        if (!isValidUuid(roomId)) return;
+        let targetUuid = roomId;
+        if (!isValidUuid(roomId)) {
+          const { data: roomByCode } = await supabase
+            .from('rooms')
+            .select('id')
+            .eq('code', roomId.toUpperCase())
+            .maybeSingle();
+          if (roomByCode) targetUuid = roomByCode.id;
+        }
+
+        if (!isValidUuid(targetUuid)) return;
 
         const { data: eventsData } = await supabase
           .from('game_events')
           .select('*')
-          .eq('room_id', roomId)
+          .eq('room_id', targetUuid)
           .order('created_at', { ascending: true });
 
         if (eventsData) {
@@ -106,7 +136,7 @@ export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProp
   }, [gameState, roomId, stopAll, supabase]);
 
   // Hook de Sincronização em Tempo Real (latência < 50ms)
-  const { connectionState, latency } = useRealtimeGame({
+  const { latency } = useRealtimeGame({
     roomId,
     playerName: 'Telão Central (TV)',
     playerRole: null,
@@ -126,7 +156,6 @@ export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProp
       setGameState('EMERGENCY_MEETING');
     },
     onPlayersPresenceChanged: (presencePlayers) => {
-      // Atualizar lista de presença mantendo integridade de nomes/cores
       if (presencePlayers.length > 0) {
         setPlayers((prev) => {
           const map = new Map(prev.map((p) => [p.id, p]));
@@ -199,7 +228,7 @@ export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProp
 
   // Recálculo dinâmico anti-deadlock de tarefas considerando APENAS jogadores vivos
   const alivePlayers = players.filter((p) => p.is_alive);
-  const totalTasks = Math.max(1, alivePlayers.length * 4); // 4 tarefas por sobrevivente
+  const totalTasks = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * 4);
   const completedTasks = alivePlayers.reduce((acc, curr) => acc + (curr.completed_tasks || 0), 0);
   const taskProgress = Math.min(100, Math.round((completedTasks / totalTasks) * 100));
 
@@ -216,7 +245,7 @@ export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProp
               PROJEÇÃO CENTRAL • PAINEL DA TV
             </span>
             <h1 className="text-3xl lg:text-4xl font-black tracking-tight text-white mt-0.5">
-              SALA DE CONTROLE: #{roomId.substring(0, 6)}
+              SALA DE CONTROLE: #{displayCode}
             </h1>
           </div>
         </div>
@@ -225,7 +254,7 @@ export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProp
           {/* Botão de Ativação do Áudio Sintetizado */}
           <button
             onClick={handleEnableAudio}
-            className={`px-4 py-2.5 rounded-xl border text-xs font-bold font-mono flex items-center gap-2 transition-all ${
+            className={`px-4 py-2.5 rounded-xl border text-xs font-bold font-mono flex items-center gap-2 transition-all cursor-pointer ${
               audioEnabled
                 ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-400'
                 : 'bg-amber-950/80 border-amber-500/60 text-amber-300 animate-bounce shadow-[0_0_20px_rgba(245,158,11,0.3)]'
@@ -296,16 +325,34 @@ export function HostTVDashboard({ roomId, initialPlayers = [] }: TVDashboardProp
 
           {/* ESTADO DE ALERTA ATIVO NA NAVE */}
           {gameState === 'EMERGENCY_MEETING' ? (
-            <div className="flex items-center gap-5 bg-red-950/80 border border-red-600/80 p-6 rounded-2xl mt-6 animate-pulse shadow-[0_0_40px_rgba(239,68,68,0.3)]">
-              <AlertTriangle className="w-12 h-12 text-red-400 shrink-0 animate-bounce" />
-              <div>
-                <h3 className="text-2xl font-black text-red-200 uppercase tracking-wide">
-                  REUNIÃO DE EMERGÊNCIA CONVOCADA
-                </h3>
-                <p className="text-sm text-red-300/90 mt-1">
-                  Todos os tripulantes dirigem-se imediatamente à Mesa de Votação!
-                </p>
+            <div className="flex items-center justify-between bg-red-950/90 border border-red-600/80 p-6 rounded-2xl mt-6 shadow-[0_0_40px_rgba(239,68,68,0.3)]">
+              <div className="flex items-center gap-5">
+                <AlertTriangle className="w-12 h-12 text-red-400 shrink-0 animate-bounce" />
+                <div>
+                  <h3 className="text-2xl font-black text-red-200 uppercase tracking-wide">
+                    REUNIÃO DE EMERGÊNCIA CONVOCADA
+                  </h3>
+                  <p className="text-sm text-red-300/90 mt-1">
+                    Todos os tripulantes dirigem-se imediatamente à Mesa Central!
+                  </p>
+                </div>
               </div>
+
+              <button
+                onClick={async () => {
+                  const channelTopic = `room:${roomId.toLowerCase()}:game_flow`;
+                  const ch = supabase.channel(channelTopic);
+                  await ch.send({
+                    type: 'broadcast',
+                    event: 'SKIP_DISCUSSION',
+                    payload: { timestamp: Date.now() },
+                  });
+                }}
+                className="px-5 py-3 bg-purple-600 hover:bg-purple-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl border border-purple-400/60 shadow-xl cursor-pointer active:scale-95 transition-all flex items-center gap-2"
+              >
+                <FastForward className="w-4 h-4 text-purple-200" />
+                <span>Pular Discussão (Abrir Votação)</span>
+              </button>
             </div>
           ) : isLightsSabotaged ? (
             <div className="flex items-center gap-5 bg-yellow-950/80 border border-yellow-500/80 p-6 rounded-2xl mt-6 animate-pulse shadow-[0_0_40px_rgba(245,158,11,0.3)]">

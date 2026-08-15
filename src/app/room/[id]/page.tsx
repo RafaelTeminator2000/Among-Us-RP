@@ -1,11 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, use, useCallback } from 'react';
 import { useRealtimeGame } from '@/lib/realtime-game';
+import { useGameAudio } from '@/hooks/use-game-audio';
 import { ConnectionStatusHUD } from '@/components/game/ConnectionStatusHUD';
+import { TaskProgressBar } from '@/components/game/TaskProgressBar';
+import { ReportBodyScanner } from '@/components/game/ReportBodyScanner';
 
 import { createClient } from '@/lib/supabase/client';
-import { GameMapHUD } from '@/components/GameMapHUD';
+import { generateUUID } from '@/lib/utils';
+import { GameMapHUD } from '@/components/map/GameMapHUD';
 import { ImpostorKillButton } from '@/components/game/ImpostorKillButton';
 import { VotingSessionScreen } from '@/components/game/VotingSessionScreen';
 import { EliminationScreen } from '@/components/minigames/EliminationScreen';
@@ -15,7 +19,7 @@ import { DarknessOverlay } from '@/components/game/DarknessOverlay';
 import { BreakerMinigame } from '@/components/minigames/BreakerMinigame';
 import { ScratchMapPlan, TaskNode, DEFAULT_DEMO_MAP } from '@/types/grid-editor';
 import { PlayerGameState } from '@/types/game';
-import { Users, Shield, Skull, AlertTriangle, CheckCircle2, Play, QrCode, Wrench, X, RefreshCw, Zap } from 'lucide-react';
+import { Users, Shield, Megaphone, QrCode, Wrench, X, RefreshCw, Zap } from 'lucide-react';
 
 interface RoomPageProps {
   params: Promise<{ id: string }>;
@@ -33,6 +37,9 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [playerId, setPlayerId] = useState<string>('');
   const [playerName, setPlayerName] = useState<string>('Jogador');
   const [playerColor, setPlayerColor] = useState<string>('#ef4444');
+  const [reporterName, setReporterName] = useState<string>('Tripulante');
+  const [discussionTimeSeconds, setDiscussionTimeSeconds] = useState<number>(30);
+  const [votingTimeSeconds, setVotingTimeSeconds] = useState<number>(35);
   const [allPlayers, setAllPlayers] = useState<PlayerGameState[]>([]);
   const [mapData, setMapData] = useState<ScratchMapPlan | null>(null);
 
@@ -40,20 +47,19 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [isSabotaged, setIsSabotaged] = useState<boolean>(false);
   const [isLightsSabotaged, setIsLightsSabotaged] = useState<boolean>(false);
   const [showBreakerGame, setShowBreakerGame] = useState<boolean>(false);
+  const [showReportScanner, setShowReportScanner] = useState<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<TaskNode | null>(null);
   const [activeMinigame, setActiveMinigame] = useState<'qr' | 'wires' | null>(null);
   const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
 
+  const { initAudio, playSiren, playEmergencyBuzzer, playTaskBeep, stopAll } = useGameAudio();
   const supabase = createClient();
 
   // 1. Carregar dados iniciais da sala e do jogador na sessão atual
   useEffect(() => {
-    const isValidUuid = (str?: string) =>
-      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-
     const initSession = async () => {
       // Recuperar o ID, Nome e Cor do jogador salvos no localStorage durante o Guest Join
-      const storedPlayerId =
+      let storedPlayerId =
         localStorage.getItem(`room_player_${roomId}`) ||
         localStorage.getItem('current_player_id');
 
@@ -65,7 +71,13 @@ export default function RoomPage({ params }: RoomPageProps) {
         localStorage.getItem(`player_color_${roomId}`) ||
         localStorage.getItem('current_player_color');
 
-      if (storedPlayerId) setPlayerId(storedPlayerId);
+      if (!storedPlayerId) {
+        storedPlayerId = generateUUID();
+        localStorage.setItem(`room_player_${roomId}`, storedPlayerId);
+        localStorage.setItem('current_player_id', storedPlayerId);
+      }
+
+      setPlayerId(storedPlayerId);
       if (storedPlayerName) setPlayerName(storedPlayerName);
       if (storedPlayerColor) setPlayerColor(storedPlayerColor);
 
@@ -95,7 +107,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           .from('rooms')
           .select('*')
           .eq('code', roomId.toUpperCase())
-          .single();
+          .maybeSingle();
 
         if (roomByCode) {
           targetRoomUuid = roomByCode.id;
@@ -112,7 +124,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           .from('rooms')
           .select('*')
           .eq('id', roomId)
-          .single();
+          .maybeSingle();
 
         if (room) {
           if (room.status) setRoomStatus(room.status as any);
@@ -129,7 +141,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           .from('room_players')
           .select('id, player_name, color_hex, role, status, completed_tasks')
           .eq('id', storedPlayerId)
-          .single();
+          .maybeSingle();
 
         if (player) {
           if (player.player_name) setPlayerName(player.player_name);
@@ -173,15 +185,23 @@ export default function RoomPage({ params }: RoomPageProps) {
   // Conexão e sincronização em tempo real via canal privado (latência < 50ms)
   const { connectionState, latency, triggerSabotage, fixSabotage, broadcastEvent } = useRealtimeGame({
     roomId,
+    roomCode: !isValidUuid(roomId) ? roomId.toUpperCase() : undefined,
     playerId,
     playerName,
     playerColor,
     playerRole,
     isAlive: playerStatus === 'ALIVE',
     onGameStarted: (payload) => {
+      initAudio();
       setRoomStatus('PLAYING');
       if (payload.roles && playerId && payload.roles[playerId]) {
         setPlayerRole(payload.roles[playerId]);
+      }
+      if (payload.rules?.discussionTime || payload.rules?.discussion_time) {
+        setDiscussionTimeSeconds(Number(payload.rules.discussionTime || payload.rules.discussion_time));
+      }
+      if (payload.rules?.votingTime || payload.rules?.voting_time) {
+        setVotingTimeSeconds(Number(payload.rules.votingTime || payload.rules.voting_time));
       }
     },
     onPlayerKilled: (payload) => {
@@ -194,31 +214,66 @@ export default function RoomPage({ params }: RoomPageProps) {
         setPlayerStatus('ELIMINATED');
       }
     },
-    onEmergencyMeeting: () => {
+    onEmergencyMeeting: (payload) => {
+      playEmergencyBuzzer();
+      if (payload?.reporterName) {
+        setReporterName(payload.reporterName);
+      }
       setRoomStatus('EMERGENCY_MEETING');
     },
     onSabotageTriggered: (payload) => {
       if (!payload || payload.type === 'LIGHTS') {
         setIsLightsSabotaged(true);
         setIsSabotaged(true);
+        playSiren();
       }
     },
     onSabotageFixed: () => {
       setIsLightsSabotaged(false);
       setIsSabotaged(false);
       setShowBreakerGame(false);
+      stopAll();
     },
     onRoomStatusChanged: (newStatus) => {
       setRoomStatus(newStatus as any);
+      if (newStatus === 'EMERGENCY_MEETING') {
+        playEmergencyBuzzer();
+      } else if (newStatus === 'PLAYING') {
+        stopAll();
+      }
+    },
+    onPlayersPresenceChanged: (presences) => {
+      if (presences && presences.length > 0) {
+        setAllPlayers((prev) => {
+          const map = new Map(prev.map((p) => [p.id, p]));
+          presences.forEach((p) => {
+            if (map.has(p.id)) {
+              const existing = map.get(p.id)!;
+              existing.is_alive = p.is_alive;
+            } else {
+              map.set(p.id, {
+                id: p.id,
+                nickname: p.name,
+                color: p.color_hex || '#3b82f6',
+                role: p.role,
+                is_alive: p.is_alive,
+                is_host: false,
+                completed_tasks: 0,
+                total_tasks: 4,
+                has_voted: false,
+                voted_for_id: null,
+              });
+            }
+          });
+          return Array.from(map.values());
+        });
+      }
     },
   });
 
   // Escutar alterações diretas no banco de dados room_players para a eliminação do jogador
   useEffect(() => {
     if (!playerId) return;
-
-    const isValidUuid = (str?: string) =>
-      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
     if (isValidUuid(playerId)) {
       const channel = supabase
@@ -249,10 +304,8 @@ export default function RoomPage({ params }: RoomPageProps) {
   const handleTriggerLightsSabotage = async () => {
     setIsLightsSabotaged(true);
     setIsSabotaged(true);
+    playSiren();
     await triggerSabotage('LIGHTS');
-
-    const isValidUuid = (str?: string) =>
-      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
     if (isValidUuid(roomId)) {
       await supabase
@@ -267,10 +320,8 @@ export default function RoomPage({ params }: RoomPageProps) {
     setIsLightsSabotaged(false);
     setIsSabotaged(false);
     setShowBreakerGame(false);
+    stopAll();
     await fixSabotage();
-
-    const isValidUuid = (str?: string) =>
-      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
     if (isValidUuid(roomId)) {
       await supabase
@@ -280,10 +331,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
   };
 
-
-
-
-  // Concluir uma tarefa e persistir
+  // Concluir uma tarefa e persistir com áudio
   const handleCompleteTask = async (taskId: string) => {
     if (completedTasks.includes(taskId)) return;
 
@@ -291,10 +339,11 @@ export default function RoomPage({ params }: RoomPageProps) {
     setCompletedTasks(newCompleted);
     setSelectedTask(null);
     setActiveMinigame(null);
+    playTaskBeep();
     setTaskFeedback('✅ Tarefa concluída com sucesso!');
     setTimeout(() => setTaskFeedback(null), 3000);
 
-    if (playerId) {
+    if (playerId && isValidUuid(playerId)) {
       await supabase
         .from('room_players')
         .update({ completed_tasks: newCompleted as any })
@@ -302,8 +351,39 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
   };
 
+  // Reportar corpo de um jogador encontrado
+  const handleBodyReported = (deadPlayerName: string) => {
+    playEmergencyBuzzer();
+    setShowReportScanner(false);
+    const myName = playerName || 'Tripulante';
+    setReporterName(myName);
+    setRoomStatus('EMERGENCY_MEETING');
+
+    broadcastEvent('EMERGENCY_MEETING', {
+      reporterId: playerId,
+      reporterName: myName,
+      deadPlayerName,
+      timestamp: Date.now(),
+    });
+    broadcastEvent('emergency_meeting', {
+      reporterId: playerId,
+      reporterName: myName,
+      deadPlayerName,
+      timestamp: Date.now(),
+    });
+  };
+
+  // Calcular progresso de tarefas da equipe
+  const alivePlayers = allPlayers.filter((p) => p.is_alive);
+  const totalTasksCount = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * 4);
+  const myCompletedCount = completedTasks.length;
+  const globalCompletedCount = allPlayers.length > 0
+    ? allPlayers.reduce((acc, curr) => acc + (curr.completed_tasks || 0), 0)
+    : myCompletedCount;
+  const progressPercentage = Math.min(100, Math.round((globalCompletedCount / totalTasksCount) * 100));
+
   // Se o jogador estiver eliminado, exibe a tela de morte sem fantasmas
-  if (playerStatus === 'ELIMINATED') {
+  if (playerStatus === 'ELIMINATED' && roomStatus !== 'EMERGENCY_MEETING') {
     const meAsPlayer: PlayerGameState = {
       id: playerId || 'self',
       nickname: playerName,
@@ -332,13 +412,45 @@ export default function RoomPage({ params }: RoomPageProps) {
 
   // Se a sala estiver em Reunião de Emergência / Votação
   if (roomStatus === 'EMERGENCY_MEETING') {
+    const formattedConnectedPlayers = allPlayers.length > 0
+      ? allPlayers.map((p) => ({
+          id: p.id,
+          player_name: p.nickname || 'Tripulante',
+          color_hex: p.color || '#3b82f6',
+          status: (p.is_alive !== false ? 'ALIVE' : 'ELIMINATED') as 'ALIVE' | 'ELIMINATED',
+          role: p.role,
+        }))
+      : undefined;
+
+    const isCurrentUserHost = Boolean(
+      (typeof window !== 'undefined' && (
+        localStorage.getItem(`is_host_${roomId}`) === 'true' ||
+        localStorage.getItem('is_room_host') === 'true' ||
+        localStorage.getItem(`is_host_${!isValidUuid(roomId) ? roomId.toUpperCase() : ''}`) === 'true'
+      )) ||
+      allPlayers.find((p) => p.id === playerId)?.is_host
+    );
+
     return (
       <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center">
         <VotingSessionScreen
           roomId={roomId}
+          roomCode={!isValidUuid(roomId) ? roomId.toUpperCase() : undefined}
           currentPlayerId={playerId}
-          reporterName="Alguém"
-          onVotingEnded={() => setRoomStatus('PLAYING')}
+          currentPlayerName={playerName}
+          reporterName={reporterName}
+          connectedPlayers={formattedConnectedPlayers}
+          discussionTimeSeconds={discussionTimeSeconds}
+          votingTimeSeconds={votingTimeSeconds}
+          isHost={isCurrentUserHost}
+          sendBroadcast={broadcastEvent}
+          onVotingEnded={(result) => {
+            stopAll();
+            if (result?.ejectedPlayerId && result.ejectedPlayerId === playerId) {
+              setPlayerStatus('ELIMINATED');
+            }
+            setRoomStatus('PLAYING');
+          }}
         />
       </div>
     );
@@ -369,7 +481,6 @@ export default function RoomPage({ params }: RoomPageProps) {
             latency={latency}
           />
         </header>
-
 
         <main className="my-auto space-y-6 text-center z-10">
           <div className="p-6 bg-slate-900/80 border border-slate-800 rounded-3xl shadow-2xl space-y-4">
@@ -414,8 +525,8 @@ export default function RoomPage({ params }: RoomPageProps) {
   // Estado de Jogo Ativo (PLAYING)
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 flex flex-col justify-between max-w-md mx-auto font-sans relative">
-      {/* Header */}
-      <header className="flex flex-col gap-2 border-b border-slate-800 pb-3 z-10">
+      {/* Header com Papel, Conexão e Barra de Tarefas */}
+      <header className="flex flex-col gap-2.5 border-b border-slate-800 pb-3 z-10">
         <div className="flex justify-between items-center">
           <h1 className="text-sm font-black text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
             <Shield className="w-4 h-4 text-cyan-400" />
@@ -432,13 +543,15 @@ export default function RoomPage({ params }: RoomPageProps) {
           </div>
         </div>
 
+        {/* Barra de Progresso Global de Tarefas no topo do HUD */}
+        <TaskProgressBar progressPercentage={progressPercentage} />
+
         <ConnectionStatusHUD
           roomId={roomId}
           connectionState={connectionState}
           latency={latency}
         />
       </header>
-
 
       {/* Feedback Toast */}
       {taskFeedback && (
@@ -465,6 +578,32 @@ export default function RoomPage({ params }: RoomPageProps) {
           </div>
         )}
       </main>
+
+      {/* Barra Inferior de Ações RP (Reportar Corpo + Sabotagem/Abate) */}
+      <div className="z-20 pt-2 flex items-center justify-between gap-2">
+        <button
+          onClick={() => setShowReportScanner(true)}
+          className="flex-1 flex items-center justify-center gap-2 py-3 bg-red-950/80 hover:bg-red-900/80 border border-red-600/70 text-red-300 font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg active:scale-95 transition-all"
+        >
+          <Megaphone className="w-4 h-4 text-red-400 animate-pulse" />
+          <span>Reportar Corpo</span>
+        </button>
+      </div>
+
+      {/* Modal de Scanner de Report de Corpos */}
+      {showReportScanner && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <ReportBodyScanner
+            roomId={roomId}
+            roomCode={!isValidUuid(roomId) ? roomId.toUpperCase() : undefined}
+            reporterId={playerId}
+            reporterName={playerName}
+            sendBroadcast={broadcastEvent}
+            onBodyReported={handleBodyReported}
+            onClose={() => setShowReportScanner(false)}
+          />
+        </div>
+      )}
 
       {/* Modal de Seleção / Execução de Tarefa */}
       {selectedTask && !activeMinigame && (
@@ -572,13 +711,13 @@ export default function RoomPage({ params }: RoomPageProps) {
       {playerRole === 'IMPOSTOR' && roomStatus === 'PLAYING' && (
         <>
           {isLightsSabotaged && (
-            <div className="fixed top-16 left-4 right-4 z-40 bg-red-950/90 border border-red-500/80 text-red-200 text-xs font-bold p-2.5 rounded-2xl text-center shadow-lg backdrop-blur-md animate-pulse flex items-center justify-center gap-2">
+            <div className="fixed top-24 left-4 right-4 z-40 bg-red-950/90 border border-red-500/80 text-red-200 text-xs font-bold p-2.5 rounded-2xl text-center shadow-lg backdrop-blur-md animate-pulse flex items-center justify-center gap-2">
               <Zap className="w-4 h-4 text-yellow-400 fill-yellow-400" />
               <span>SABOTAGEM DE LUZES ATIVA (VISÃO NOTURNA DE IMPOSTOR)</span>
             </div>
           )}
 
-          <div className="fixed bottom-6 right-6 z-30 flex flex-col gap-3 items-end">
+          <div className="fixed bottom-20 right-6 z-30 flex flex-col gap-3 items-end">
             {!isLightsSabotaged && (
               <button
                 onClick={handleTriggerLightsSabotage}

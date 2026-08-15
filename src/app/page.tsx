@@ -4,6 +4,7 @@ import React, { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createRoomAction, joinRoomAction } from '@/app/room/actions';
 import { Shield, Crown, Radio, QrCode, Play, Users, Sparkles, MapPin, AlertCircle, RefreshCw } from 'lucide-react';
+import { generateUUID } from '@/lib/utils';
 import Link from 'next/link';
 
 export default function Home() {
@@ -43,7 +44,11 @@ export default function Home() {
     startTransition(async () => {
       // Salvar nome e dados de perfil localmente para conveniência
       if (typeof window !== 'undefined') {
+        const guestId = generateUUID();
+        localStorage.setItem('current_player_id', guestId);
         localStorage.setItem('current_player_name', guestName.trim());
+        localStorage.setItem(`player_name_${roomCode}`, guestName.trim());
+        localStorage.setItem(`room_player_${roomCode}`, guestId);
       }
 
       const res = await joinRoomAction(null, formData);

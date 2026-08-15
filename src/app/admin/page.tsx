@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { HostDashboard } from '@/components/HostDashboard';
+import { HostDashboard } from '@/components/host/HostDashboard';
 import { GridMapBuilder } from '@/components/admin/GridMapBuilder';
 import Link from 'next/link';
 import { Printer, Layers, Crown, Shield } from 'lucide-react';

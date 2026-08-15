@@ -1,20 +1,28 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { createClient } from "@/lib/supabase/client";
 import { Html5QrcodeScanner } from "html5-qrcode";
-import { Megaphone, Camera, AlertCircle, RefreshCw, X, ShieldAlert } from "lucide-react";
+import { Megaphone, Camera, AlertCircle, RefreshCw, X } from "lucide-react";
 
 interface ReportBodyProps {
   roomId: string;
+  roomCode?: string;
   reporterId: string;
+  reporterName?: string;
+  sendBroadcast?: (event: string, payload: any) => Promise<void>;
   onBodyReported: (deadPlayerName: string) => void;
+  onClose?: () => void;
 }
 
 export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
   roomId,
+  roomCode,
   reporterId,
+  reporterName,
+  sendBroadcast,
   onBodyReported,
+  onClose,
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -35,41 +43,69 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
     setErrorMsg(null);
 
     try {
-      // 1. Verificar se o jogador escaneado realmente está morto
-      const { data: targetPlayer, error: fetchError } = await supabase
-        .from("room_players")
-        .select("player_name, status")
-        .eq("id", scannedPlayerId.trim())
-        .single();
+      const isValidUuid = (str?: string) =>
+        typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
-      if (fetchError || !targetPlayer) {
-        throw new Error("QR Code inválido ou jogador não encontrado.");
+      let deadPlayerName = `Jogador #${scannedPlayerId.substring(0, 4)}`;
+
+      // 1. Verificar se o jogador escaneado realmente está morto (se for UUID válido)
+      if (isValidUuid(scannedPlayerId.trim())) {
+        const { data: targetPlayer, error: fetchError } = await supabase
+          .from("room_players")
+          .select("player_name, status")
+          .eq("id", scannedPlayerId.trim())
+          .maybeSingle();
+
+        if (fetchError || !targetPlayer) {
+          throw new Error("QR Code inválido ou jogador não encontrado.");
+        }
+
+        if (targetPlayer.status === "ALIVE") {
+          throw new Error("Este jogador está vivo! Você só pode reportar corpos.");
+        }
+
+        if (targetPlayer.player_name) {
+          deadPlayerName = targetPlayer.player_name;
+        }
+      } else {
+        // Fallback para códigos demo/simulação (ex: 'p4' ou 'Verde')
+        deadPlayerName = scannedPlayerId === 'p4' ? 'Verde' : scannedPlayerId;
       }
 
-      if (targetPlayer.status === "ALIVE") {
-        throw new Error("Este jogador está vivo! Você só pode reportar corpos.");
-      }
+      // 2. Atualizar o status global da sala para 'EMERGENCY_MEETING' no Supabase
+      if (isValidUuid(roomId)) {
+        const { error: roomUpdateError } = await supabase
+          .from("rooms")
+          .update({ status: "EMERGENCY_MEETING" })
+          .eq("id", roomId);
 
-      // 2. Atualizar o status global da sala para 'EMERGENCY_MEETING'
-      const { error: roomUpdateError } = await supabase
-        .from("rooms")
-        .update({ status: "EMERGENCY_MEETING" })
-        .eq("id", roomId);
-
-      if (roomUpdateError) {
-        console.warn("Aviso na atualização da sala (modo offline/demo):", roomUpdateError);
+        if (roomUpdateError) {
+          console.warn("Aviso na atualização da sala:", roomUpdateError);
+        }
       }
 
       // 3. Enviar o Broadcast via WebSocket para disparar o alarme e som em todos os celulares
-      const channel = supabase.channel(`room:${roomId}`);
-      await channel.send({
-        type: "broadcast",
-        event: "BODY_REPORTED",
-        payload: {
-          reporterId,
-          deadPlayerName: targetPlayer.player_name,
-        },
-      });
+      const emergencyPayload = {
+        reporterId,
+        reporterName: reporterName || "Tripulante",
+        deadPlayerName,
+        timestamp: Date.now(),
+      };
+
+      if (sendBroadcast) {
+        await sendBroadcast("emergency_meeting", emergencyPayload);
+        await sendBroadcast("EMERGENCY_MEETING", emergencyPayload);
+      } else {
+        const topicKey = (roomCode || roomId).trim().toLowerCase();
+        const channelTopic = `room:${topicKey}:game_flow`;
+        const channel = supabase.channel(channelTopic);
+        await channel.subscribe();
+        await channel.send({
+          type: "broadcast",
+          event: "emergency_meeting",
+          payload: emergencyPayload,
+        });
+      }
 
       // Fechar a câmera caso esteja aberta
       if (scannerRef.current) {
@@ -78,7 +114,7 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
       }
       setShowCamera(false);
 
-      onBodyReported(targetPlayer.player_name);
+      onBodyReported(deadPlayerName);
     } catch (err: any) {
       setErrorMsg(err.message || "Erro ao processar o report.");
     } finally {
@@ -106,7 +142,7 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
       (decodedText) => {
         handleScanDeadPlayerQR(decodedText);
       },
-      (error) => {
+      () => {
         // Ignora erros de frame vazio durante scan contínuo
       }
     );
@@ -122,11 +158,21 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
   }, [showCamera]);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-sm mx-auto text-center space-y-4 font-sans select-none shadow-2xl relative overflow-hidden">
+    <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl max-w-sm mx-auto text-center space-y-4 font-sans select-none shadow-2xl relative overflow-hidden">
+      {/* Fechar modal */}
+      {onClose && (
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full bg-slate-800 transition-all z-20"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      )}
+
       {/* Background glow animation */}
       <div className="absolute -top-12 -left-12 w-32 h-32 bg-red-600/10 rounded-full blur-2xl pointer-events-none" />
 
-      <div className="w-14 h-14 mx-auto rounded-full bg-red-600/20 border border-red-500 flex items-center justify-center text-red-500 text-2xl animate-pulse shadow-inner">
+      <div className="w-14 h-14 mx-auto rounded-2xl bg-red-600/20 border border-red-500 flex items-center justify-center text-red-500 text-2xl animate-pulse shadow-inner">
         <Megaphone className="w-7 h-7 text-red-500" />
       </div>
 
@@ -140,7 +186,7 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
       </div>
 
       {errorMsg && (
-        <div className="bg-red-950/80 border border-red-600/60 text-red-200 text-xs p-3 rounded-xl flex items-center justify-center gap-2 animate-in fade-in">
+        <div className="bg-red-950/80 border border-red-600/60 text-red-200 text-xs p-3 rounded-2xl flex items-center justify-center gap-2 animate-in fade-in">
           <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
           <span>{errorMsg}</span>
         </div>
@@ -155,7 +201,7 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
           />
           <button
             onClick={() => setShowCamera(false)}
-            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl uppercase tracking-wider text-xs transition flex items-center justify-center gap-2"
+            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-2xl uppercase tracking-wider text-xs transition flex items-center justify-center gap-2"
           >
             <X className="w-4 h-4" />
             <span>Cancelar Câmera</span>
@@ -166,7 +212,7 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
           <button
             disabled={isProcessing}
             onClick={() => setShowCamera(true)}
-            className="w-full bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-black py-3 rounded-xl uppercase tracking-wider text-xs transition shadow-lg flex items-center justify-center gap-2 active:scale-95"
+            className="w-full bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-black py-3.5 rounded-2xl uppercase tracking-wider text-xs transition shadow-lg shadow-red-600/20 flex items-center justify-center gap-2 active:scale-95"
           >
             <Camera className="w-4 h-4" />
             <span>{isProcessing ? "Processando Report..." : "📷 Escanear QR Code das Costas"}</span>
@@ -183,12 +229,12 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
                 placeholder="ID do jogador morto"
                 value={manualPlayerId}
                 onChange={(e) => setManualPlayerId(e.target.value)}
-                className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded-lg text-slate-200 w-full focus:outline-none focus:border-red-500 font-mono"
+                className="bg-slate-950 border border-slate-800 text-xs px-3 py-2 rounded-xl text-slate-200 w-full focus:outline-none focus:border-red-500 font-mono"
               />
               <button
                 disabled={isProcessing || !manualPlayerId}
                 onClick={() => handleScanDeadPlayerQR(manualPlayerId)}
-                className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 text-xs px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1 shrink-0"
+                className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 text-xs px-3 py-2 rounded-xl font-bold transition flex items-center gap-1 shrink-0"
               >
                 {isProcessing ? <RefreshCw className="w-3 h-3 animate-spin" /> : "Testar"}
               </button>

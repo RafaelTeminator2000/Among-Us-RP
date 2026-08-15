@@ -98,7 +98,7 @@ export const ImpostorKillButton: React.FC<ImpostorKillProps> = ({
           .from("rooms")
           .select("id")
           .eq("code", (roomCode || roomId).toUpperCase())
-          .single();
+          .maybeSingle();
 
         if (roomData?.id) {
           targetRoomUuid = roomData.id;

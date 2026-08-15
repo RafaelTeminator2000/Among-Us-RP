@@ -60,6 +60,9 @@ export interface UseRealtimeGameProps {
   onEmergencyMeeting?: (payload: EmergencyMeetingPayload) => void;
   onSabotageTriggered?: (payload: SabotageTriggeredPayload) => void;
   onSabotageFixed?: (payload: SabotageFixedPayload) => void;
+  onSkipDiscussion?: () => void;
+  onVoteCast?: (payload: any) => void;
+  onVotingFinished?: (payload: any) => void;
   onRoomStatusChanged?: (newStatus: string) => void;
   onPlayersPresenceChanged?: (players: PresencePlayer[]) => void;
 }
@@ -78,6 +81,9 @@ export function useRealtimeGame({
   onEmergencyMeeting,
   onSabotageTriggered,
   onSabotageFixed,
+  onSkipDiscussion,
+  onVoteCast,
+  onVotingFinished,
   onRoomStatusChanged,
   onPlayersPresenceChanged,
 }: UseRealtimeGameProps) {
@@ -96,6 +102,9 @@ export function useRealtimeGame({
     onEmergencyMeeting,
     onSabotageTriggered,
     onSabotageFixed,
+    onSkipDiscussion,
+    onVoteCast,
+    onVotingFinished,
     onRoomStatusChanged,
     onPlayersPresenceChanged,
   });
@@ -107,6 +116,9 @@ export function useRealtimeGame({
       onEmergencyMeeting,
       onSabotageTriggered,
       onSabotageFixed,
+      onSkipDiscussion,
+      onVoteCast,
+      onVotingFinished,
       onRoomStatusChanged,
       onPlayersPresenceChanged,
     };
@@ -116,6 +128,9 @@ export function useRealtimeGame({
     onEmergencyMeeting,
     onSabotageTriggered,
     onSabotageFixed,
+    onSkipDiscussion,
+    onVoteCast,
+    onVotingFinished,
     onRoomStatusChanged,
     onPlayersPresenceChanged,
   ]);
@@ -124,7 +139,29 @@ export function useRealtimeGame({
   const playerRef = useRef({ playerId, playerName, playerColor, playerRole, isAlive });
   useEffect(() => {
     playerRef.current = { playerId, playerName, playerColor, playerRole, isAlive };
-  }, [playerId, playerName, playerColor, playerRole, isAlive]);
+
+    // Se o canal já estiver conectado, enviar presença e anúncio com os dados mais recentes
+    if (channelRef.current && connectionState === 'CONNECTED' && playerId) {
+      const presencePayload = {
+        id: playerId,
+        playerId,
+        user_id: '',
+        name: playerName || 'Tripulante',
+        player_name: playerName || 'Tripulante',
+        color_hex: playerColor || '#ef4444',
+        role: playerRole,
+        is_alive: isAlive,
+        online_at: new Date().toISOString(),
+      };
+
+      channelRef.current.track(presencePayload).catch(() => {});
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'PLAYER_JOINED',
+        payload: presencePayload,
+      }).catch(() => {});
+    }
+  }, [playerId, playerName, playerColor, playerRole, isAlive, connectionState]);
 
 
   // Função genérica de envio de broadcast com validação de canal
@@ -265,6 +302,10 @@ export function useRealtimeGame({
           const data = payload.payload as EmergencyMeetingPayload;
           if (callbacksRef.current.onEmergencyMeeting) callbacksRef.current.onEmergencyMeeting(data);
         })
+        .on('broadcast', { event: 'EMERGENCY_MEETING' }, (payload) => {
+          const data = payload.payload as EmergencyMeetingPayload;
+          if (callbacksRef.current.onEmergencyMeeting) callbacksRef.current.onEmergencyMeeting(data);
+        })
         .on('broadcast', { event: 'sabotage_triggered' }, (payload) => {
           const data = payload.payload as SabotageTriggeredPayload;
           if (callbacksRef.current.onSabotageTriggered) callbacksRef.current.onSabotageTriggered(data);
@@ -272,6 +313,18 @@ export function useRealtimeGame({
         .on('broadcast', { event: 'sabotage_fixed' }, (payload) => {
           const data = payload.payload as SabotageFixedPayload;
           if (callbacksRef.current.onSabotageFixed) callbacksRef.current.onSabotageFixed(data);
+        })
+        .on('broadcast', { event: 'SKIP_DISCUSSION' }, () => {
+          if (callbacksRef.current.onSkipDiscussion) callbacksRef.current.onSkipDiscussion();
+        })
+        .on('broadcast', { event: 'skip_discussion' }, () => {
+          if (callbacksRef.current.onSkipDiscussion) callbacksRef.current.onSkipDiscussion();
+        })
+        .on('broadcast', { event: 'PLAYER_VOTED' }, (payload) => {
+          if (callbacksRef.current.onVoteCast) callbacksRef.current.onVoteCast(payload.payload);
+        })
+        .on('broadcast', { event: 'VOTING_FINISHED' }, (payload) => {
+          if (callbacksRef.current.onVotingFinished) callbacksRef.current.onVotingFinished(payload.payload);
         })
         .on('broadcast', { event: 'ping_check' }, (payload) => {
           if (payload.payload?.timestamp && isMounted) {
@@ -289,6 +342,9 @@ export function useRealtimeGame({
           (payload: any) => {
             if (payload.new?.status && callbacksRef.current.onRoomStatusChanged) {
               callbacksRef.current.onRoomStatusChanged(payload.new.status);
+            }
+            if (payload.new?.status === 'EMERGENCY_MEETING' && callbacksRef.current.onEmergencyMeeting) {
+              callbacksRef.current.onEmergencyMeeting({ reporterId: '', reporterName: 'Tripulante' });
             }
           }
         );
@@ -327,30 +383,36 @@ export function useRealtimeGame({
         if (status === 'SUBSCRIBED') {
           setConnectionState('CONNECTED');
 
-          // Registrar estado inicial do jogador no Presence APENAS UMA VEZ
-          if (playerRef.current.playerId && !isTrackedRef.current) {
+          // Registrar estado inicial do jogador no Presence
+          const effectiveId = playerRef.current.playerId || `guest_${Date.now()}`;
+          if (!isTrackedRef.current) {
             isTrackedRef.current = true;
-            const { data: userData } = await supabase.auth.getUser();
+            let userId = '';
+            try {
+              const { data: userData } = await supabase.auth.getUser();
+              userId = userData?.user?.id || '';
+            } catch {}
+
             const presencePayload = {
-              id: playerRef.current.playerId,
-              playerId: playerRef.current.playerId,
-              user_id: userData?.user?.id || '',
-              name: playerRef.current.playerName,
-              player_name: playerRef.current.playerName,
-              color_hex: playerRef.current.playerColor,
+              id: effectiveId,
+              playerId: effectiveId,
+              user_id: userId,
+              name: playerRef.current.playerName || 'Tripulante',
+              player_name: playerRef.current.playerName || 'Tripulante',
+              color_hex: playerRef.current.playerColor || '#ef4444',
               role: playerRef.current.playerRole,
               is_alive: playerRef.current.isAlive,
               online_at: new Date().toISOString(),
             };
 
-            await channel.track(presencePayload);
+            await channel.track(presencePayload).catch(() => {});
 
             // Enviar evento broadcast imediato para notificar o Host (< 50ms)
             await channel.send({
               type: 'broadcast',
               event: 'PLAYER_JOINED',
               payload: presencePayload,
-            });
+            }).catch(() => {});
           }
 
           // Medição de latência a cada 5s
