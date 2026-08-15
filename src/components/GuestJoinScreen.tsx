@@ -80,12 +80,26 @@ export const GuestJoinScreen: React.FC<GuestJoinProps> = ({ onSuccessfullyJoined
           throw new Error(playerError?.message || "Erro ao entrar na sala. Tente outro nome.");
         }
 
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`player_name_${room.id}`, cleanName);
+          localStorage.setItem(`player_color_${room.id}`, selectedColor);
+          localStorage.setItem('current_player_name', cleanName);
+          localStorage.setItem('current_player_color', selectedColor);
+        }
+
         onSuccessfullyJoined(room.id, player.id);
         return;
       }
 
       // Se a sala não for encontrada no banco remoto, mas o código for de teste (ex: A7X9 ou DEMO)
       if (cleanCode === "A7X9" || cleanCode === "DEMO") {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('player_name_demo-room-id', cleanName);
+          localStorage.setItem('player_color_demo-room-id', selectedColor);
+          localStorage.setItem('current_player_name', cleanName);
+          localStorage.setItem('current_player_color', selectedColor);
+        }
+
         setTimeout(() => {
           onSuccessfullyJoined("demo-room-id", `demo-player-${Date.now()}`);
         }, 600);

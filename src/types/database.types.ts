@@ -31,6 +31,7 @@ export interface Database {
           status: RoomStatus;
           map_data: Json;
           rules: RoomRules;
+          is_lights_sabotaged: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -41,6 +42,7 @@ export interface Database {
           status?: RoomStatus;
           map_data?: Json;
           rules?: RoomRules;
+          is_lights_sabotaged?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -51,6 +53,7 @@ export interface Database {
           status?: RoomStatus;
           map_data?: Json;
           rules?: RoomRules;
+          is_lights_sabotaged?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -93,6 +96,44 @@ export interface Database {
         Relationships: [
           {
             foreignKeyName: "room_players_room_id_fkey";
+            columns: ["room_id"];
+            isOneToOne: false;
+            referencedRelation: "rooms";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      game_events: {
+        Row: {
+          id: string;
+          room_id: string;
+          event_type: string;
+          player_id: string | null;
+          target_id: string | null;
+          payload: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          room_id: string;
+          event_type: string;
+          player_id?: string | null;
+          target_id?: string | null;
+          payload?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          room_id?: string;
+          event_type?: string;
+          player_id?: string | null;
+          target_id?: string | null;
+          payload?: Json;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "game_events_room_id_fkey";
             columns: ["room_id"];
             isOneToOne: false;
             referencedRelation: "rooms";

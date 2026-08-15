@@ -1,477 +1,199 @@
-"use client";
+'use client';
 
-import React, { useState } from "react";
-import { TaskQrReader } from "@/components/minigames/TaskQrReader";
-import { WireMinigame } from "@/components/minigames/WireMinigame";
-import { EliminationScreen } from "@/components/minigames/EliminationScreen";
-import { HostDashboard } from "@/components/HostDashboard";
-import { GuestJoinScreen } from "@/components/GuestJoinScreen";
-import { GameMapHUD } from "@/components/GameMapHUD";
-import { QRScannerModal } from "@/components/tasks/QRScannerModal";
-import { ReportBodyScanner } from "@/components/ReportBodyScanner";
-import { ImpostorKillButton } from "@/components/game/ImpostorKillButton";
-import { VotingSessionScreen } from "@/components/game/VotingSessionScreen";
-import { DEFAULT_DEMO_MAP } from "@/types/grid-editor";
-import { PlayerGameState, VotingResult } from "@/types/game";
-import { QrCode, Zap, Vote, Skull, Radio, Play, Sparkles, ArrowLeft, CheckCircle, Crown, UserPlus, Map, Scan, Megaphone } from "lucide-react";
-
-const MOCK_PLAYERS: PlayerGameState[] = [
-  {
-    id: "p1",
-    nickname: "Vermelho",
-    color: "#ef4444",
-    role: "CREWMATE",
-    is_alive: true,
-    is_host: true,
-    completed_tasks: 3,
-    total_tasks: 4,
-    has_voted: false,
-    voted_for_id: null,
-  },
-  {
-    id: "p2",
-    nickname: "Azul",
-    color: "#3b82f6",
-    role: "IMPOSTOR",
-    is_alive: true,
-    is_host: false,
-    completed_tasks: 2,
-    total_tasks: 4,
-    has_voted: true,
-    voted_for_id: "p3",
-  },
-  {
-    id: "p3",
-    nickname: "Amarelo",
-    color: "#eab308",
-    role: "CREWMATE",
-    is_alive: true,
-    is_host: false,
-    completed_tasks: 4,
-    total_tasks: 4,
-    has_voted: false,
-    voted_for_id: null,
-  },
-  {
-    id: "p4",
-    nickname: "Verde",
-    color: "#22c55e",
-    role: "CREWMATE",
-    is_alive: false, // Morto
-    is_host: false,
-    completed_tasks: 1, // Descartado no cálculo de vivos
-    total_tasks: 4,
-    has_voted: false,
-    voted_for_id: null,
-  },
-  {
-    id: "p5",
-    nickname: "Rosa",
-    color: "#ec4899",
-    role: "CREWMATE",
-    is_alive: true,
-    is_host: false,
-    completed_tasks: 1,
-    total_tasks: 4,
-    has_voted: true,
-    voted_for_id: "skip",
-  },
-];
+import React, { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { createRoomAction, joinRoomAction } from '@/app/room/actions';
+import { Shield, Crown, Radio, QrCode, Play, Users, Sparkles, MapPin, AlertCircle, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"menu" | "qr" | "wires" | "elimination" | "host" | "join" | "map" | "scanner" | "report" | "kill" | "votingSession">("menu");
-  const [lastNotification, setLastNotification] = useState<string | null>(null);
-  const [isSabotaged, setIsSabotaged] = useState<boolean>(false);
-  const [completedTasks, setCompletedTasks] = useState<string[]>(["node-2"]); // Começa com fiação completa
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
 
-  const notify = (msg: string) => {
-    setLastNotification(msg);
-    setTimeout(() => setLastNotification(null), 4000);
+  const [guestName, setGuestName] = useState('');
+  const [roomCode, setRoomCode] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Formatar código de 4 caracteres automaticamente em maiúsculo
+  const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+    setRoomCode(val);
+    if (errorMessage) setErrorMessage(null);
+  };
+
+  // Tratar submissão do formulário de entrada do Convidado
+  const handleGuestSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+
+    if (!guestName.trim() || guestName.trim().length < 2) {
+      setErrorMessage('Digite seu nome (mínimo 2 caracteres).');
+      return;
+    }
+
+    if (roomCode.length !== 4) {
+      setErrorMessage('Digite o código de 4 dígitos da sala (ex: A7X9).');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('playerName', guestName.trim());
+    formData.append('code', roomCode);
+
+    startTransition(async () => {
+      // Salvar nome e dados de perfil localmente para conveniência
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('current_player_name', guestName.trim());
+      }
+
+      const res = await joinRoomAction(null, formData);
+      if (res?.error) {
+        setErrorMessage(res.error);
+      }
+    });
+  };
+
+  // Tratar criação de sala pelo Host
+  const handleHostCreate = () => {
+    setErrorMessage(null);
+    startTransition(async () => {
+      const res = await createRoomAction();
+      if (res?.error) {
+        setErrorMessage(res.error);
+      }
+    });
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-3 sm:p-6 relative overflow-hidden font-sans">
-      {/* Background Glow */}
+    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-4 sm:p-6 relative overflow-hidden font-sans select-none">
+      {/* Glow Effects de Fundo */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-red-600/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 left-1/2 -translate-x-1/2 translate-y-1/2 w-96 h-96 bg-cyan-600/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Header */}
-      <header className="w-full max-w-md text-center space-y-1.5 z-10 pt-2 pb-1">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-800/50 text-cyan-400 text-xs font-semibold uppercase tracking-wider">
-          <Radio className="w-3.5 h-3.5 animate-pulse text-cyan-400" />
-          <span>Agente 2 — Módulo Phygital & Minigames</span>
+      {/* HEADER DA PLATAFORMA */}
+      <header className="w-full max-w-md text-center space-y-2.5 z-10 pt-4 pb-2">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-950/80 border border-cyan-800/60 text-cyan-400 text-xs font-bold uppercase tracking-wider backdrop-blur-md shadow-lg">
+          <Radio className="w-4 h-4 animate-pulse text-cyan-400" />
+          <span>Among Us RP • Plataforma Phygital</span>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-red-500 via-slate-100 to-cyan-400 bg-clip-text text-transparent">
+        <h1 className="text-4xl sm:text-5xl font-black tracking-tight bg-gradient-to-r from-red-500 via-slate-100 to-cyan-400 bg-clip-text text-transparent drop-shadow-sm">
           AMONG US RP
         </h1>
+        <p className="text-xs text-slate-400 font-medium max-w-xs mx-auto">
+          Automação de Lobbies, Sabotagens síncronas em tempo real e Modo Telão para partidas presenciais.
+        </p>
       </header>
 
-      {/* Toast Notification */}
-      {lastNotification && (
-        <div className="fixed top-4 z-50 bg-emerald-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
-          <CheckCircle className="w-4 h-4 text-emerald-400" />
-          <span>{lastNotification}</span>
-        </div>
-      )}
-
-      {/* Main View Area */}
-      <div className="w-full max-w-md my-auto z-10 py-2">
-        {activeTab === "menu" && (
-          <div className="space-y-4">
-            <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-3xl text-center space-y-1">
-              <h2 className="font-bold text-sm text-slate-200">Demonstração de Componentes</h2>
-              <p className="text-xs text-slate-400">
-                Selecione abaixo o componente do PWA Mobile para testar a interatividade:
-              </p>
+      {/* CORE CONTAINER: ENTRADA DE CONVIDADO + CRIAR SALA */}
+      <div className="w-full max-w-md my-auto z-10 space-y-5 py-4">
+        {/* CARD 1: PAINEL DO CONVIDADO (ENTRAR NA SALA) */}
+        <div className="bg-slate-900/90 border border-slate-800 p-6 rounded-3xl shadow-2xl backdrop-blur-xl relative overflow-hidden space-y-5">
+          <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+              <Users className="w-6 h-6" />
             </div>
-
-            <div className="grid grid-cols-1 gap-3">
-              {/* Button 0.1: Guest Join Screen */}
-              <button
-                onClick={() => setActiveTab("join")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-cyan-950/60 to-slate-900 border border-cyan-500/40 hover:border-cyan-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-cyan-500/20 text-cyan-400 rounded-xl border border-cyan-500/30">
-                    <UserPlus className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-cyan-300">Entrada do Convidado (Guest Join)</h3>
-                    <p className="text-xs text-slate-400">Código da Sala + Apelido + Cor do Traje</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-cyan-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 0.2: Host Dashboard */}
-              <button
-                onClick={() => setActiveTab("host")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-emerald-950/60 to-slate-900 border border-emerald-500/40 hover:border-emerald-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
-                    <Crown className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-emerald-300">Painel do Host (Host Studio)</h3>
-                    <p className="text-xs text-slate-400">Lobby em tempo real + Regras + Sorteio</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-emerald-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 0.3: GameMapHUD */}
-              <button
-                onClick={() => setActiveTab("map")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-blue-950/60 to-slate-900 border border-blue-500/40 hover:border-blue-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-blue-500/20 text-blue-400 rounded-xl border border-blue-500/30">
-                    <Map className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-blue-300">Mapa Tático & Legenda</h3>
-                    <p className="text-xs text-slate-400">Salas reais 2D + Nodes de tasks + Sabotagem</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-blue-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 0.4: QRScannerModal */}
-              <button
-                onClick={() => setActiveTab("scanner")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-teal-950/60 to-slate-900 border border-teal-500/40 hover:border-teal-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-teal-500/20 text-teal-400 rounded-xl border border-teal-500/30">
-                    <Scan className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-teal-300">Leitor QR (Câmara PWA)</h3>
-                    <p className="text-xs text-slate-400">Abrir câmera integrada via html5-qrcode</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-teal-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 1: QR Reader */}
-              <button
-                onClick={() => setActiveTab("qr")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-950 border border-slate-800 hover:border-slate-700 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
-                    <QrCode className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-slate-200">1. Leitor de QR Code (Antigo)</h3>
-                    <p className="text-xs text-slate-400">Escaneamento phygital + Entrada manual</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-cyan-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 2: Wire Minigame */}
-              <button
-                onClick={() => setActiveTab("wires")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-amber-950/60 to-slate-900 border border-amber-500/40 hover:border-amber-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30">
-                    <Zap className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-amber-300">2. Minigame Conectar Fios</h3>
-                    <p className="text-xs text-slate-400">Conexão de fios elétricos (Touch & Mouse)</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-amber-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 3: Elimination Screen */}
-              <button
-                onClick={() => setActiveTab("elimination")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-purple-950/60 to-slate-900 border border-purple-500/40 hover:border-purple-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-purple-500/20 text-purple-400 rounded-xl border border-purple-500/30">
-                    <Skull className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-purple-300">3. Eliminação Instantânea</h3>
-                    <p className="text-xs text-slate-400">Sem fantasmas + Progresso recalculado (Vivos)</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-purple-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 4: Report Body Scanner */}
-              <button
-                onClick={() => setActiveTab("report")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-rose-950/60 to-slate-900 border border-rose-500/40 hover:border-rose-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-rose-500/20 text-rose-400 rounded-xl border border-rose-500/30">
-                    <Megaphone className="w-6 h-6 group-hover:scale-110 transition-transform animate-pulse" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-rose-300">4. Reportar Corpo (QR Traseiro)</h3>
-                    <p className="text-xs text-slate-400">Scan do crachá das costas + Broadcast Realtime</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-rose-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 5: Impostor Kill Button */}
-              <button
-                onClick={() => setActiveTab("kill")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-red-950/80 to-slate-900 border border-red-500/50 hover:border-red-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-red-500/30 text-red-400 rounded-xl border border-red-500/40">
-                    <Skull className="w-6 h-6 group-hover:scale-110 transition-transform animate-bounce" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-red-300">5. Abate do Impostor (Botão & Cooldown)</h3>
-                    <p className="text-xs text-slate-400">Cooldown + Modal de alvos + Broadcast de vibração</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-red-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-
-              {/* Button 6: Integrated Voting Session Screen */}
-              <button
-                onClick={() => setActiveTab("votingSession")}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-cyan-950/80 to-slate-900 border border-cyan-500/50 hover:border-cyan-400 flex items-center justify-between text-left transition-all active:scale-[0.98] group shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-cyan-500/30 text-cyan-400 rounded-xl border border-cyan-500/40">
-                    <Vote className="w-6 h-6 group-hover:scale-110 transition-transform animate-pulse" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-cyan-300">6. Reunião & Votação Integrada</h3>
-                    <p className="text-xs text-slate-400">Tempo limite + Voto no Supabase + Sync Realtime</p>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 text-cyan-400 opacity-60 group-hover:opacity-100 transition-opacity" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Render Active Component */}
-        {activeTab === "join" && (
-          <GuestJoinScreen
-            onSuccessfullyJoined={(roomId, playerId) => {
-              notify(`Conectado à sala ${roomId} com ID ${playerId.slice(0, 8)}!`);
-              setActiveTab("menu");
-            }}
-          />
-        )}
-
-        {activeTab === "scanner" && (
-          <QRScannerModal
-            onScanSuccess={(qrToken) => {
-              notify(`QR Token Escaneado: ${qrToken}`);
-              setActiveTab("menu");
-            }}
-            onClose={() => setActiveTab("menu")}
-          />
-        )}
-
-        {activeTab === "map" && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-3 rounded-2xl">
-              <span className="text-xs text-slate-300 font-bold uppercase tracking-wider">
-                Controles de Teste (Sabotagem)
-              </span>
-              <button
-                onClick={() => setIsSabotaged(!isSabotaged)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition-all ${
-                  isSabotaged
-                    ? "bg-red-600 text-white animate-pulse"
-                    : "bg-slate-800 text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                {isSabotaged ? "Desativar Sabotagem ⚡" : "Simular Sabotagem (Luz) 🚨"}
-              </button>
-            </div>
-
-            <GameMapHUD
-              mapData={DEFAULT_DEMO_MAP}
-              completedTasks={completedTasks}
-              isSabotaged={isSabotaged}
-              onSelectTaskNode={(node) => {
-                notify(`Task selecionada: ${node.room_name} (${node.type})`);
-                if (!completedTasks.includes(node.id)) {
-                  setCompletedTasks((prev) => [...prev, node.id]);
-                }
-              }}
-            />
-
-            <div className="text-center">
-              <button
-                onClick={() => setCompletedTasks(["node-2"])}
-                className="text-[10px] text-slate-500 hover:text-slate-400 underline font-mono"
-              >
-                Resetar progresso de tasks do mapa
-              </button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "host" && (
-          <HostDashboard
-            roomId="demo-room-id"
-            roomCode="A7X9"
-            initialPlayers={MOCK_PLAYERS.map((p) => ({
-              id: p.id,
-              room_id: "demo-room-id",
-              player_name: p.nickname,
-              color_hex: p.color,
-              status: p.is_alive ? "ALIVE" : "ELIMINATED",
-              role: p.role,
-            }))}
-            onGameStarted={() => {
-              notify("Partida Iniciada via Host Studio!");
-              setActiveTab("menu");
-            }}
-          />
-        )}
-
-        {activeTab === "qr" && (
-          <TaskQrReader
-            expectedTaskTitle="REPARAR NAVEGADOR (PHYSICAL)"
-            expectedTaskLocation="Navegação - Sala 02"
-            onScanSuccess={(code) => {
-              notify(`QR Code Lido com Sucesso: ${code}`);
-              setActiveTab("menu");
-            }}
-            onCancel={() => setActiveTab("menu")}
-          />
-        )}
-
-        {activeTab === "wires" && (
-          <WireMinigame
-            onComplete={() => {
-              notify("Minigame de Fios concluído com Sucesso!");
-              setActiveTab("menu");
-            }}
-            onCancel={() => setActiveTab("menu")}
-          />
-        )}
-
-        {activeTab === "elimination" && (
-          <EliminationScreen
-            eliminatedPlayer={MOCK_PLAYERS[3]} // Verde (Morto)
-            players={MOCK_PLAYERS}
-            onReturnToLobby={() => setActiveTab("menu")}
-          />
-        )}
-
-        {activeTab === "report" && (
-          <ReportBodyScanner
-            roomId="demo-room-id"
-            reporterId="p1"
-            onBodyReported={(deadPlayerName) => {
-              notify(`🚨 ALARME: Corpo de ${deadPlayerName} reportado! Reunião convocada.`);
-              setActiveTab("menu");
-            }}
-          />
-        )}
-
-        {activeTab === "kill" && (
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl text-center space-y-6 max-w-sm mx-auto shadow-2xl">
             <div>
-              <h3 className="text-sm font-black text-red-500 uppercase tracking-widest">
-                HUD do Impostor — Módulo de Abate
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Toque no ombro da vítima na vida real e acione o botão abaixo para eliminá-la no sistema.
+              <h2 className="text-base font-black text-white uppercase tracking-wider">
+                Entrar em uma Sala
+              </h2>
+              <p className="text-xs text-slate-400 font-mono">
+                Digite seu nome e o código de 4 letras do evento
               </p>
             </div>
-
-            <ImpostorKillButton
-              roomId="demo-room-id"
-              impostorId="p2" // Impostor Azul na demonstração
-              initialCooldownSeconds={5} // 5s para facilitar testes no demo
-              onKillExecuted={(victimId, victimName) => {
-                notify(`🔪 ABATE CONFIRMADO: ${victimName} foi eliminado(a)!`);
-              }}
-            />
           </div>
-        )}
 
-        {activeTab === "votingSession" && (
-          <VotingSessionScreen
-            roomId="demo-room-id"
-            currentPlayerId="p1"
-            reporterName="Vermelho"
-            votingTimeSeconds={30}
-            onVotingEnded={() => {
-              notify("Sessão de Votação Encerrada!");
-              setActiveTab("menu");
-            }}
-          />
-        )}
+          {/* MENSAGEM DE ERRO */}
+          {errorMessage && (
+            <div className="bg-red-950/80 border border-red-500/60 text-red-200 text-xs p-3 rounded-2xl flex items-center gap-2.5 animate-shake">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
 
-        {/* Back to menu button if in component */}
-        {activeTab !== "menu" && (
-          <div className="mt-3 text-center">
+          <form onSubmit={handleGuestSubmit} className="space-y-4">
+            {/* Campo Nome */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-mono font-bold uppercase text-slate-300 block">
+                Seu Nome / Apelido RP
+              </label>
+              <input
+                type="text"
+                required
+                value={guestName}
+                onChange={(e) => setGuestName(e.target.value)}
+                placeholder="Ex: Tripulante Alfa"
+                className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/50 rounded-2xl px-4 py-3 text-sm text-slate-100 placeholder-slate-600 outline-none transition-all"
+              />
+            </div>
+
+            {/* Campo Código da Sala (4 Caracteres) */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-mono font-bold uppercase text-slate-300 block">
+                Código da Sala (4 Dígitos)
+              </label>
+              <input
+                type="text"
+                required
+                maxLength={4}
+                value={roomCode}
+                onChange={handleCodeChange}
+                placeholder="Ex: A7X9"
+                className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/50 rounded-2xl px-4 py-3 text-center font-mono text-xl font-black tracking-widest text-cyan-400 uppercase placeholder-slate-700 outline-none transition-all"
+              />
+            </div>
+
+            {/* Botão Entrar */}
             <button
-              onClick={() => setActiveTab("menu")}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-3 py-1.5 bg-slate-900 rounded-xl border border-slate-800"
+              type="submit"
+              disabled={isPending}
+              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-sm uppercase tracking-wider py-3.5 px-6 rounded-2xl shadow-[0_0_25px_rgba(6,182,212,0.3)] transition-all active:scale-98 flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Voltar ao Menu Demo</span>
+              {isPending ? (
+                <RefreshCw className="w-5 h-5 animate-spin" />
+              ) : (
+                <>
+                  <Play className="w-4 h-4 fill-slate-950" />
+                  <span>Entrar no Jogo</span>
+                </>
+              )}
             </button>
+          </form>
+        </div>
+
+        {/* CARD 2: PAINEL DO HOST (CRIAR SALA DINÂMICA) */}
+        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-3xl backdrop-blur-md space-y-3 text-center">
+          <div className="flex items-center justify-center gap-2 text-xs text-amber-400 font-bold uppercase tracking-wider">
+            <Crown className="w-4 h-4 text-amber-400" />
+            <span>Área do Organizador / Host</span>
           </div>
-        )}
+
+          <button
+            onClick={handleHostCreate}
+            disabled={isPending}
+            className="w-full bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 font-black text-sm uppercase tracking-wider py-3.5 px-6 rounded-2xl shadow-[0_0_20px_rgba(245,158,11,0.3)] transition-all active:scale-98 flex items-center justify-center gap-2 border border-amber-400/30 disabled:opacity-50"
+          >
+            {isPending ? (
+              <RefreshCw className="w-5 h-5 animate-spin" />
+            ) : (
+              <>
+                <Crown className="w-5 h-5" />
+                <span>Criar Novo Lobby (Host)</span>
+              </>
+            )}
+          </button>
+
+          <div className="flex justify-center gap-4 text-xs font-mono pt-1 text-slate-400">
+            <Link href="/admin" className="hover:text-cyan-400 transition-colors flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5" />
+              <span>Host Studio</span>
+            </Link>
+          </div>
+        </div>
       </div>
 
-      {/* Footer */}
-      <footer className="w-full max-w-md text-center text-xs text-slate-500 z-10 pb-2">
-        <p>Among Us RP Presencial &copy; {new Date().getFullYear()}</p>
+      {/* FOOTER */}
+      <footer className="w-full max-w-md z-10 pt-2 pb-2 text-center text-[10px] text-slate-600 font-mono">
+        Among Us RP Phygital • Supabase Realtime WS Sub-50ms
       </footer>
     </main>
   );

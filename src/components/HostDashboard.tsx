@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createClient } from "@/utils/supabase/client";
+import Link from "next/link";
 import {
   Crown,
   Users,
@@ -14,8 +15,10 @@ import {
   Radio,
   SlidersHorizontal,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Printer
 } from "lucide-react";
+
 
 interface Player {
   id: string;
@@ -49,14 +52,17 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Carregar jogadores e escutar novas entradas, alterações e saídas em tempo real
+  const channelRef = useRef<any>(null);
+
+  // Carregar jogadores e escutar novas entradas, alterações e saídas em tempo real (DB + WebSockets Presence)
   useEffect(() => {
-    // Validar se o roomId é um UUID válido do Postgres
+    if (!roomId) return;
+
     const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
 
+    // 1. Carregar do banco Postgres se for UUID válido
     const fetchPlayers = async () => {
-      if (!roomId || !isValidUuid) {
-        // Modo demonstração ou ID não-UUID: Manter a lista inicial de teste
+      if (!isValidUuid) {
         if (initialPlayers && initialPlayers.length > 0) {
           setPlayers(initialPlayers);
         }
@@ -77,13 +83,70 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
 
     fetchPlayers();
 
-    // Se não for UUID válido (ex: modo demo), ignorar subscrição de realtime com filtro postgres
-    if (!isValidUuid) return;
+    // 2. Canal Realtime unificado (Presença de WebSockets em tempo real < 50ms)
+    const topicKey = (roomCode || roomId).trim().toLowerCase();
+    const channelTopic = `room:${topicKey}:game_flow`;
+    const channel = supabase.channel(channelTopic, {
+      config: {
+        broadcast: { self: true },
+        presence: {
+          key: `host_${Date.now()}`,
+        },
+      },
+    });
 
-    // Canal Realtime para escutar atualizações no lobby remoto
-    const channel = supabase
-      .channel(`room-lobby:${roomId}`)
-      .on(
+    channelRef.current = channel;
+
+    // Escutar Presence sync para detectar jogadores que entram pelo celular em tempo real
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const activePresencePlayers: Player[] = [];
+
+        Object.values(state).forEach((presences) => {
+          presences.forEach((p: any) => {
+            if (p && (p.id || p.playerId) && (p.name || p.player_name || p.playerName)) {
+              activePresencePlayers.push({
+                id: p.id || p.playerId,
+                room_id: roomId,
+                player_name: p.name || p.player_name || p.playerName || 'Tripulante',
+                color_hex: p.color_hex || p.colorHex || '#3b82f6',
+                status: p.is_alive !== false ? 'ALIVE' : 'ELIMINATED',
+                role: p.role || null,
+              });
+            }
+          });
+        });
+
+        if (activePresencePlayers.length > 0) {
+          setPlayers((prev) => {
+            const mergedMap = new Map<string, Player>();
+            prev.forEach((player) => mergedMap.set(player.id, player));
+            activePresencePlayers.forEach((player) => mergedMap.set(player.id, player));
+            return Array.from(mergedMap.values());
+          });
+        }
+      })
+      .on('broadcast', { event: 'PLAYER_JOINED' }, ({ payload }) => {
+        if (payload && (payload.id || payload.playerId)) {
+          const newPlayer: Player = {
+            id: payload.id || payload.playerId,
+            room_id: roomId,
+            player_name: payload.player_name || payload.name || payload.playerName || 'Tripulante',
+            color_hex: payload.color_hex || payload.colorHex || '#3b82f6',
+            status: 'ALIVE',
+            role: payload.role || null,
+          };
+          setPlayers((prev) => {
+            if (prev.some((p) => p.id === newPlayer.id)) return prev;
+            return [...prev, newPlayer];
+          });
+        }
+      });
+
+    // Se for UUID válido, escutar também postgres_changes na tabela room_players
+    if (isValidUuid) {
+      channel.on(
         "postgres_changes",
         {
           event: "*",
@@ -105,13 +168,16 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
             );
           }
         }
-      )
-      .subscribe();
+      );
+    }
+
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      channelRef.current = null;
     };
-  }, [roomId, initialPlayers, supabase]);
+  }, [roomId, roomCode, initialPlayers, supabase]);
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(roomCode);
@@ -133,40 +199,60 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
     try {
       const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
 
-      // 1. Sortear Impostores aleatoriamente
+      // 1. Sortear Impostores e Tripulantes aleatoriamente
       const shuffled = [...players].sort(() => 0.5 - Math.random());
-      const impostorIds = new Set(shuffled.slice(0, impostorCount).map((p) => p.id));
+      const impostorIds = new Set(shuffled.slice(0, Math.max(1, impostorCount)).map((p) => p.id));
+
+      const rolesMap: Record<string, 'CREWMATE' | 'IMPOSTOR'> = {};
+      players.forEach((p) => {
+        rolesMap[p.id] = impostorIds.has(p.id) ? 'IMPOSTOR' : 'CREWMATE';
+      });
 
       if (isValidUuid) {
-        // 2. Atualizar o papel (role) de cada jogador no Supabase
+        // 2. Atualizar o papel (role) de cada jogador no Supabase DB
         for (const player of players) {
-          const role = impostorIds.has(player.id) ? "IMPOSTOR" : "CREWMATE";
+          const role = rolesMap[player.id];
           await supabase
             .from("room_players")
             .update({ role })
             .eq("id", player.id);
         }
 
-        // 3. Atualizar o status da sala para 'PLAYING' e salvar as regras globais
+        // 3. Atualizar o status da sala para 'PLAYING' no DB
         await supabase
           .from("rooms")
           .update({
             status: "PLAYING",
+            game_state: "PLAYING",
             rules: { kill_cooldown: killCooldown, impostor_count: impostorCount, task_count: taskCount },
           })
           .eq("id", roomId);
       }
 
-      // 4. Disparar evento de broadcast via WebSocket para os celulares dos Guests
-      const channel = supabase.channel(`room:${roomId}`);
-      await channel.send({
-        type: "broadcast",
-        event: "GAME_STARTED",
-        payload: {
-          timestamp: Date.now(),
-          rules: { killCooldown, impostorCount, taskCount },
-        },
-      });
+      // 4. Transmitir sinal via WebSocket no canal padronizado já conectado
+      const payload = {
+        status: "PLAYING",
+        roles: rolesMap,
+        rules: { killCooldown, impostorCount, taskCount },
+        timestamp: Date.now(),
+      };
+
+      if (channelRef.current) {
+        await channelRef.current.send({
+          type: "broadcast",
+          event: "GAME_STARTED",
+          payload,
+        });
+      } else {
+        const channelTopic = `room:${roomId}:game_flow`;
+        const tempChannel = supabase.channel(channelTopic);
+        await tempChannel.subscribe();
+        await tempChannel.send({
+          type: "broadcast",
+          event: "GAME_STARTED",
+          payload,
+        });
+      }
 
       setStatusMessage("Partida iniciada! Transmitindo sinal aos convidados...");
       setTimeout(() => {
@@ -174,6 +260,8 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           onGameStarted();
         }
       }, 1000);
+
+
     } catch (error: any) {
       console.error("Erro ao iniciar partida:", error?.message || error);
       setStatusMessage("Erro ao iniciar partida. Tente novamente.");
@@ -201,19 +289,30 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         </div>
 
         {/* Big Room Code Badge */}
-        <button
-          onClick={handleCopyCode}
-          className="group relative bg-slate-950 border border-cyan-500/50 hover:border-cyan-400 px-4 py-2 rounded-xl text-center transition-all active:scale-95 shadow-md flex flex-col items-center"
-          title="Clique para copiar o código"
-        >
-          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-widest flex items-center gap-1">
-            CÓDIGO {copiedCode ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-cyan-400" />}
-          </span>
-          <span className="text-2xl font-black font-mono tracking-widest text-cyan-400 group-hover:text-cyan-300">
-            {roomCode}
-          </span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/admin/print"
+            className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-cyan-500/50 text-cyan-400 rounded-xl transition-all flex items-center justify-center shadow-md active:scale-95"
+            title="Imprimir Kit de QR Codes Permanentes"
+          >
+            <Printer className="w-5 h-5" />
+          </Link>
+
+          <button
+            onClick={handleCopyCode}
+            className="group relative bg-slate-950 border border-cyan-500/50 hover:border-cyan-400 px-4 py-2 rounded-xl text-center transition-all active:scale-95 shadow-md flex flex-col items-center cursor-pointer"
+            title="Clique para copiar o código"
+          >
+            <span className="text-[9px] font-mono text-slate-400 uppercase tracking-widest flex items-center gap-1">
+              CÓDIGO {copiedCode ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-cyan-400" />}
+            </span>
+            <span className="text-2xl font-black font-mono tracking-widest text-cyan-400 group-hover:text-cyan-300">
+              {roomCode}
+            </span>
+          </button>
+        </div>
       </header>
+
 
       {/* Status Message / Notification */}
       {statusMessage && (

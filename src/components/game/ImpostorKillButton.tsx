@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { createClient } from "@/lib/supabase/client";
 import { Skull, AlertCircle, RefreshCw, X, ShieldAlert, Zap } from "lucide-react";
+import { PlayerGameState } from "@/types/game";
 
 interface PlayerTarget {
   id: string;
@@ -13,22 +14,28 @@ interface PlayerTarget {
 
 interface ImpostorKillProps {
   roomId: string;
+  roomCode?: string;
   impostorId: string;
+  players?: PlayerGameState[];
   initialCooldownSeconds?: number;
+  sendBroadcast?: (event: string, payload: any) => Promise<any>;
   onKillExecuted?: (victimId: string, victimName: string) => void;
 }
 
-// Mock de fallback para testes em ambiente de demonstração local
+// Fallback responsivo para partidas demo ou presenciais sem persistência em banco
 const DEMO_TARGETS: PlayerTarget[] = [
-  { id: "p1", player_name: "Vermelho", color_hex: "#ef4444", status: "ALIVE" },
-  { id: "p3", player_name: "Amarelo", color_hex: "#eab308", status: "ALIVE" },
-  { id: "p5", player_name: "Rosa", color_hex: "#ec4899", status: "ALIVE" },
+  { id: "p1", player_name: "P1", color_hex: "#a855f7", status: "ALIVE" },
+  { id: "p2", player_name: "P2", color_hex: "#22c55e", status: "ALIVE" },
+  { id: "p3", player_name: "P3", color_hex: "#f97316", status: "ALIVE" },
 ];
 
 export const ImpostorKillButton: React.FC<ImpostorKillProps> = ({
   roomId,
+  roomCode,
   impostorId,
+  players,
   initialCooldownSeconds = 30,
+  sendBroadcast,
   onKillExecuted,
 }) => {
   const [cooldown, setCooldown] = useState<number>(initialCooldownSeconds);
@@ -54,29 +61,87 @@ export const ImpostorKillButton: React.FC<ImpostorKillProps> = ({
     if (cooldown > 0) return;
     setErrorMsg(null);
 
-    try {
-      const { data, error } = await supabase
-        .from("room_players")
-        .select("id, player_name, color_hex, status")
-        .eq("room_id", roomId)
-        .eq("status", "ALIVE")
-        .neq("id", impostorId); // Exclui o próprio impostor
+    // 1. Se a lista de jogadores `players` for fornecida via props, filtrar tripulantes vivos
+    if (players && players.length > 0) {
+      const aliveTargets = players
+        .filter((p) => {
+          const isMe = p.id === impostorId || p.nickname === impostorId;
+          const isImpostor = p.role === "IMPOSTOR";
+          const isDead = !p.is_alive || (p as any).status === "ELIMINATED";
+          return !isMe && !isImpostor && !isDead;
+        })
+        .map((p) => ({
+          id: p.id,
+          player_name: p.nickname,
+          color_hex: p.color || "#3b82f6",
+          status: "ALIVE",
+        }));
 
-      if (error || !data || data.length === 0) {
-        // Se estiver em modo de teste demo ou se não retornar do banco, usa o fallback de alvos
-        setTargets(DEMO_TARGETS.filter((t) => t.id !== impostorId));
-      } else {
-        setTargets(data);
+      setTargets(aliveTargets);
+      if (aliveTargets.length === 0) {
+        setErrorMsg("Nenhum tripulante vivo disponível para abater.");
+      }
+      setShowTargetModal(true);
+      return;
+    }
+
+    // 2. Tentar buscar no Supabase
+    try {
+      const isValidUuid = (str?: string) =>
+        typeof str === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+      let targetRoomUuid = roomId;
+
+      // Se roomId for um código (ex: "A7X9"), buscar o UUID da sala no Supabase
+      if (!isValidUuid(roomId)) {
+        const { data: roomData } = await supabase
+          .from("rooms")
+          .select("id")
+          .eq("code", (roomCode || roomId).toUpperCase())
+          .single();
+
+        if (roomData?.id) {
+          targetRoomUuid = roomData.id;
+        }
+      }
+
+      if (isValidUuid(targetRoomUuid)) {
+        const { data, error } = await supabase
+          .from("room_players")
+          .select("id, player_name, color_hex, status, role")
+          .eq("room_id", targetRoomUuid)
+          .eq("status", "ALIVE")
+          .neq("id", impostorId);
+
+        if (!error && data) {
+          const aliveCrewmates = data.filter(
+            (p) => p.status === "ALIVE" && p.role !== "IMPOSTOR" && p.id !== impostorId
+          );
+          setTargets(aliveCrewmates);
+          if (aliveCrewmates.length === 0) {
+            setErrorMsg("Nenhum tripulante vivo disponível no banco.");
+          }
+          setShowTargetModal(true);
+          return;
+        }
+      }
+
+      // 3. Fallback dinâmico para demonstração
+      const demoAlive = DEMO_TARGETS.filter((t) => t.id !== impostorId && t.status === "ALIVE");
+      setTargets(demoAlive);
+      if (demoAlive.length === 0) {
+        setErrorMsg("Nenhum tripulante vivo para abater.");
       }
       setShowTargetModal(true);
     } catch (err) {
       console.warn("Usando alvos de demonstração devido ao erro:", err);
-      setTargets(DEMO_TARGETS.filter((t) => t.id !== impostorId));
+      const demoAlive = DEMO_TARGETS.filter((t) => t.id !== impostorId && t.status === "ALIVE");
+      setTargets(demoAlive);
       setShowTargetModal(true);
     }
   };
 
-  // Executar o Abate no Servidor
+  // Executar o Abate no Servidor e via WebSockets
   const handleExecuteKill = async (targetId: string) => {
     setIsExecuting(true);
     setErrorMsg(null);
@@ -84,24 +149,54 @@ export const ImpostorKillButton: React.FC<ImpostorKillProps> = ({
     const victim = targets.find((t) => t.id === targetId);
     const victimName = victim?.player_name || targetId;
 
-    try {
-      // 1. Atualizar status da vítima para ELIMINATED no Supabase
-      const { error } = await supabase
-        .from("room_players")
-        .update({ status: "ELIMINATED" })
-        .eq("id", targetId);
+    // Remover a vítima da lista local de alvos imediatamente
+    setTargets((prev) => prev.filter((t) => t.id !== targetId));
 
-      if (error) {
-        console.warn("Aviso na atualização da vítima no Supabase (modo demo):", error);
+    try {
+      const isValidUuid = (str?: string) =>
+        typeof str === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+      // 1. Atualizar status da vítima para ELIMINATED no Supabase DB
+      if (isValidUuid(targetId)) {
+        await supabase
+          .from("room_players")
+          .update({ status: "ELIMINATED" })
+          .eq("id", targetId);
       }
 
-      // 2. Disparar evento de broadcast em tempo real para o celular da vítima vibrar
-      const channel = supabase.channel(`room:${roomId}`);
-      await channel.send({
-        type: "broadcast",
-        event: "PLAYER_KILLED",
-        payload: { victimId: targetId, victimName },
-      });
+      // 2. Registrar evento na tabela game_events para o Event-Sourcing Lite
+      if (isValidUuid(roomId)) {
+        await supabase.from("game_events").insert({
+          room_id: roomId,
+          event_type: "PLAYER_KILLED",
+          player_id: isValidUuid(impostorId) ? impostorId : null,
+          target_id: isValidUuid(targetId) ? targetId : null,
+          payload: { victimName, victimId: targetId },
+        });
+      }
+
+      // 3. Transmitir abate em tempo real pelo canal unificado de WebSockets (< 50ms)
+      const killPayload = { victimId: targetId, victimName, targetId, attackerId: impostorId };
+
+      if (sendBroadcast) {
+        await sendBroadcast("player_killed", killPayload);
+        await sendBroadcast("PLAYER_KILLED", killPayload);
+      } else {
+        const topicKey = (roomCode || roomId).trim().toLowerCase();
+        const channelTopic = `room:${topicKey}:game_flow`;
+        const channel = supabase.channel(channelTopic);
+        await channel.subscribe();
+        await channel.send({
+          type: "broadcast",
+          event: "player_killed",
+          payload: killPayload,
+        });
+        await channel.send({
+          type: "broadcast",
+          event: "PLAYER_KILLED",
+          payload: killPayload,
+        });
+      }
 
       // Feedback tátil no celular do impostor (se suportado)
       if (typeof window !== "undefined" && navigator.vibrate) {
