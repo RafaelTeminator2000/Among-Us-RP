@@ -315,6 +315,26 @@ export default function RoomPage({ params }: RoomPageProps) {
         playEmergencyBuzzer();
       } else if (newStatus === 'PLAYING') {
         stopAll();
+      } else if (newStatus === 'LOBBY') {
+        stopAll();
+        setPlayerStatus('ALIVE');
+        setCompletedTasks([]);
+        setIsLightsSabotaged(false);
+        setIsSabotaged(false);
+        setVictoryModal(null);
+        setSelectedTask(null);
+        setActiveMinigame(null);
+        setShowReportScanner(false);
+        setShowBreakerGame(false);
+        setAllPlayers((prev) =>
+          prev.map((p) => ({
+            ...p,
+            is_alive: true,
+            completed_tasks: 0,
+            has_voted: false,
+            voted_for_id: null,
+          }))
+        );
       }
     },
     onPlayersPresenceChanged: (presences) => {
@@ -485,6 +505,64 @@ export default function RoomPage({ params }: RoomPageProps) {
     [allPlayers, playerId, playerName, playerColor, roomId, isValidUuid, supabase, broadcastEvent, stopAll]
   );
 
+  // Função para retornar todos os jogadores para a sala de espera do Host (LOBBY)
+  const handleReturnToLobby = useCallback(async () => {
+    stopAll();
+    setRoomStatus('LOBBY');
+    setPlayerStatus('ALIVE');
+    setCompletedTasks([]);
+    setIsLightsSabotaged(false);
+    setIsSabotaged(false);
+    setVictoryModal(null);
+    setSelectedTask(null);
+    setActiveMinigame(null);
+    setShowReportScanner(false);
+    setShowBreakerGame(false);
+
+    setAllPlayers((prev) =>
+      prev.map((p) => ({
+        ...p,
+        is_alive: true,
+        completed_tasks: 0,
+        has_voted: false,
+        voted_for_id: null,
+      }))
+    );
+
+    // 1. Transmitir evento broadcast de retorno ao lobby para toda a sala
+    const lobbyPayload = { status: 'LOBBY', timestamp: Date.now() };
+    await broadcastEvent('RETURN_TO_LOBBY', lobbyPayload);
+    await broadcastEvent('return_to_lobby', lobbyPayload);
+
+    // 2. Atualizar status da sala e dos jogadores no Supabase se for UUID válido
+    if (isValidUuid(roomId)) {
+      try {
+        await supabase
+          .from('rooms')
+          .update({
+            status: 'LOBBY',
+            is_lights_sabotaged: false,
+          })
+          .eq('id', roomId);
+
+        const currentList = allPlayers.length > 0 ? allPlayers : [{ id: playerId }];
+        for (const p of currentList) {
+          if (isValidUuid(p.id)) {
+            await supabase
+              .from('room_players')
+              .update({
+                status: 'ALIVE',
+                completed_tasks: [] as any,
+              })
+              .eq('id', p.id);
+          }
+        }
+      } catch (e) {
+        console.warn('[RoomPage] Erro ao atualizar banco para LOBBY:', e);
+      }
+    }
+  }, [stopAll, roomId, isValidUuid, supabase, broadcastEvent, allPlayers, playerId]);
+
   // Callback de finalização da sessão de votação e ejeção
   const handleVotingEnded = useCallback(
     (result?: {
@@ -495,7 +573,6 @@ export default function RoomPage({ params }: RoomPageProps) {
       wasTieOrSkipped?: boolean;
     }) => {
       stopAll();
-      setRoomStatus('PLAYING');
 
       if (result?.ejectedPlayerId) {
         const isMe = result.ejectedPlayerId === playerId;
@@ -515,7 +592,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           const impName = result.ejectedPlayerName || 'O Impostor';
           playTaskBeep();
 
-          // Exibir modal de vitória com contagem regressiva para nova partida
+          // Exibir modal de vitória com contagem regressiva para retornar ao lobby de espera
           setVictoryModal((prev) => {
             if (prev) return prev;
             return {
@@ -532,11 +609,13 @@ export default function RoomPage({ params }: RoomPageProps) {
           }).catch(() => {});
         } else {
           // Um Tripulante foi ejetado ao invés do Impostor: A partida continua!
+          setRoomStatus('PLAYING');
           const crewName = result.ejectedPlayerName || 'Tripulante';
           setTaskFeedback(`⚠️ ${crewName} NÃO era o Impostor! A partida continua.`);
           setTimeout(() => setTaskFeedback(null), 5000);
         }
       } else {
+        setRoomStatus('PLAYING');
         setTaskFeedback('⚖️ Ninguém foi ejetado da nave. A partida continua.');
         setTimeout(() => setTaskFeedback(null), 4000);
       }
@@ -544,7 +623,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     [playerId, stopAll, playTaskBeep, broadcastEvent]
   );
 
-  // Countdown automático para reinício após vitória dos tripulantes
+  // Countdown automático para retorno ao lobby após vitória dos tripulantes
   useEffect(() => {
     if (!victoryModal) return;
 
@@ -554,11 +633,10 @@ export default function RoomPage({ params }: RoomPageProps) {
       }, 1000);
       return () => clearTimeout(timer);
     } else if (victoryModal.countdown === 0) {
-      const impName = victoryModal.impostorName;
       setVictoryModal(null);
-      handleRestartGame(impName);
+      handleReturnToLobby();
     }
-  }, [victoryModal, handleRestartGame]);
+  }, [victoryModal, handleReturnToLobby]);
 
   // Lista memoizada de jogadores para a tela de votação (evita recriação desnecessária de array)
   const formattedConnectedPlayers = useMemo(() => {
@@ -654,8 +732,8 @@ export default function RoomPage({ params }: RoomPageProps) {
     : myCompletedCount;
   const progressPercentage = Math.min(100, Math.round((globalCompletedCount / totalTasksCount) * 100));
 
-  // Se o jogador estiver eliminado, exibe a tela de morte sem fantasmas
-  if (playerStatus === 'ELIMINATED' && roomStatus !== 'EMERGENCY_MEETING') {
+  // Se o jogador estiver eliminado, exibe a tela de morte sem fantasmas (apenas enquanto a partida está em andamento)
+  if (playerStatus === 'ELIMINATED' && roomStatus !== 'EMERGENCY_MEETING' && roomStatus !== 'LOBBY') {
     const meAsPlayer: PlayerGameState = {
       id: playerId || 'self',
       nickname: playerName,
@@ -675,7 +753,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           eliminatedPlayer={meAsPlayer}
           players={allPlayers.length > 0 ? allPlayers : [meAsPlayer]}
           onReturnToLobby={() => {
-            setPlayerStatus('ALIVE');
+            handleReturnToLobby();
           }}
         />
       </div>
@@ -1128,17 +1206,17 @@ export default function RoomPage({ params }: RoomPageProps) {
             </div>
 
             <div className="p-3 bg-slate-950/90 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Nova partida em:</span>
+              <span className="text-slate-400">Retornando ao Lobby em:</span>
               <span className="font-mono font-black text-cyan-400 text-sm">
                 {victoryModal.countdown}s
               </span>
             </div>
 
             <button
-              onClick={() => handleRestartGame(victoryModal.impostorName)}
-              className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer"
+              onClick={() => handleReturnToLobby()}
+              className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
             >
-              Reiniciar Agora
+              <span>Voltar à Sala de Espera (Host)</span>
             </button>
           </div>
         </div>

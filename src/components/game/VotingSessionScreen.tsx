@@ -737,7 +737,11 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
         <footer className="pt-2 z-10 relative">
           <div className="w-full py-3 bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg">
             <Clock className="w-4 h-4 text-cyan-400 animate-spin" />
-            <span>Retornando à nave em {resultTimeLeft}s...</span>
+            <span>
+              {votingOutcome.isImpostor
+                ? `Retornando ao lobby em ${resultTimeLeft}s...`
+                : `Retornando à nave em ${resultTimeLeft}s...`}
+            </span>
           </div>
         </footer>
       </div>
