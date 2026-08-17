@@ -61,6 +61,7 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [discussionTimeSeconds, setDiscussionTimeSeconds] = useState<number>(30);
   const [votingTimeSeconds, setVotingTimeSeconds] = useState<number>(35);
   const [allPlayers, setAllPlayers] = useState<PlayerGameState[]>([]);
+  const [roomUuid, setRoomUuid] = useState<string>(roomId);
   const [mapData, setMapData] = useState<ScratchMapPlan | null>(null);
 
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
@@ -243,6 +244,8 @@ export default function RoomPage({ params }: RoomPageProps) {
         }
       }
 
+      setRoomUuid(targetRoomUuid);
+
       if (storedPlayerId && isValidUuid(storedPlayerId)) {
         const { data: player } = await supabase
           .from('room_players')
@@ -378,6 +381,20 @@ export default function RoomPage({ params }: RoomPageProps) {
       setShowBreakerGame(false);
       stopAll();
     },
+    onTaskCompleted: (payload) => {
+      if (payload && payload.playerId) {
+        setAllPlayers((prev) =>
+          prev.map((p) =>
+            p.id === payload.playerId
+              ? {
+                  ...p,
+                  completed_tasks: payload.completedCount ?? (typeof p.completed_tasks === 'number' ? p.completed_tasks + 1 : 1),
+                }
+              : p
+          )
+        );
+      }
+    },
     onRoomStatusChanged: (newStatus) => {
       setRoomStatus(newStatus as any);
       if (newStatus === 'EMERGENCY_MEETING') {
@@ -478,6 +495,51 @@ export default function RoomPage({ params }: RoomPageProps) {
       };
     }
   }, [playerId, supabase]);
+
+  // Escutar alterações em tempo real de todos os room_players da sala para atualizar progresso de tarefas
+  useEffect(() => {
+    if (!roomUuid || !isValidUuid(roomUuid)) return;
+
+    const channel = supabase
+      .channel(`room_players_sync_${roomUuid}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_players',
+          filter: `room_id=eq.${roomUuid}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' && payload.new) {
+            const updated = payload.new as any;
+            const tasksCount = Array.isArray(updated.completed_tasks)
+              ? updated.completed_tasks.length
+              : typeof updated.completed_tasks === 'number'
+              ? updated.completed_tasks
+              : 0;
+
+            setAllPlayers((prev) =>
+              prev.map((p) =>
+                p.id === updated.id
+                  ? {
+                      ...p,
+                      completed_tasks: tasksCount,
+                      is_alive: updated.status === 'ALIVE',
+                      role: updated.role || p.role,
+                    }
+                  : p
+              )
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [roomUuid, supabase]);
 
   // Função para sortear novo impostor e reiniciar a partida
   const handleRestartGame = useCallback(
@@ -762,6 +824,27 @@ export default function RoomPage({ params }: RoomPageProps) {
     setTaskFeedback('✅ Tarefa concluída com sucesso!');
     setTimeout(() => setTaskFeedback(null), 3000);
 
+    // Broadcast instantâneo (<50ms) da tarefa concluída para Host, TV e demais jogadores
+    broadcastEvent('TASK_COMPLETED', {
+      taskId,
+      playerId,
+      playerName: playerName || 'Tripulante',
+      completedCount: newCompleted.length,
+    }).catch(() => {});
+    broadcastEvent('task_completed', {
+      taskId,
+      playerId,
+      playerName: playerName || 'Tripulante',
+      completedCount: newCompleted.length,
+    }).catch(() => {});
+
+    // Atualizar estado local de allPlayers para atualizar imediatamente o progresso no HUD do jogador
+    setAllPlayers((prev) =>
+      prev.map((p) =>
+        p.id === playerId ? { ...p, completed_tasks: newCompleted.length } : p
+      )
+    );
+
     if (playerId && isValidUuid(playerId)) {
       await supabase
         .from('room_players')
@@ -792,14 +875,54 @@ export default function RoomPage({ params }: RoomPageProps) {
     });
   };
 
+  // Helper para contar tarefas de um jogador de forma segura (lidando com arrays ou números)
+  const getPlayerTaskCount = (p: PlayerGameState, isSelf: boolean) => {
+    let count = 0;
+    if (Array.isArray((p as any).completed_tasks)) {
+      count = (p as any).completed_tasks.length;
+    } else if (typeof p.completed_tasks === 'number') {
+      count = p.completed_tasks;
+    }
+    if (isSelf) {
+      count = Math.max(count, completedTasks.length);
+    }
+    return count;
+  };
+
   // Calcular progresso de tarefas da equipe
   const alivePlayers = allPlayers.filter((p) => p.is_alive);
   const totalTasksCount = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * 4);
   const myCompletedCount = completedTasks.length;
   const globalCompletedCount = allPlayers.length > 0
-    ? allPlayers.reduce((acc, curr) => acc + (curr.completed_tasks || 0), 0)
+    ? allPlayers.reduce((acc, curr) => acc + getPlayerTaskCount(curr, curr.id === playerId), 0)
     : myCompletedCount;
   const progressPercentage = Math.min(100, Math.round((globalCompletedCount / totalTasksCount) * 100));
+
+  // Disparar vitória dos tripulantes quando todas as tarefas forem concluídas (100%)
+  useEffect(() => {
+    if (progressPercentage >= 100 && roomStatus === 'PLAYING' && !victoryModal) {
+      stopAll();
+      playTaskBeep();
+      const msg = 'Todas as tarefas da nave foram concluídas!';
+
+      setVictoryModal({
+        impostorName: msg,
+        countdown: 5,
+      });
+
+      broadcastEvent('CREWMATE_VICTORY', {
+        reason: 'TASKS_COMPLETED',
+        impostorName: msg,
+        timestamp: Date.now(),
+      }).catch(() => {});
+
+      broadcastEvent('crewmate_victory', {
+        reason: 'TASKS_COMPLETED',
+        impostorName: msg,
+        timestamp: Date.now(),
+      }).catch(() => {});
+    }
+  }, [progressPercentage, roomStatus, victoryModal, stopAll, playTaskBeep, broadcastEvent]);
 
   // Se o jogador estiver eliminado, exibe a tela de morte sem fantasmas (apenas enquanto a partida está em andamento)
   if (playerStatus === 'ELIMINATED' && roomStatus !== 'EMERGENCY_MEETING' && roomStatus !== 'LOBBY') {
@@ -1356,7 +1479,11 @@ export default function RoomPage({ params }: RoomPageProps) {
                 Vitória dos Tripulantes!
               </h2>
               <p className="text-xs text-slate-300">
-                O Impostor <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong> foi ejetado da nave.
+                {victoryModal.impostorName.includes('tarefas') ? (
+                  <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong>
+                ) : (
+                  <>O Impostor <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong> foi ejetado da nave.</>
+                )}
               </p>
             </div>
 

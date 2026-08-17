@@ -152,6 +152,20 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     onSabotageFixed: () => {
       setIsLightsSabotaged(false);
     },
+    onTaskCompleted: (payload) => {
+      if (payload && payload.playerId) {
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.id === payload.playerId
+              ? {
+                  ...p,
+                  completed_tasks: payload.completedCount ?? (typeof p.completed_tasks === 'number' ? p.completed_tasks + 1 : 1),
+                }
+              : p
+          )
+        );
+      }
+    },
     onEmergencyMeeting: () => {
       setGameState('EMERGENCY_MEETING');
     },
@@ -183,6 +197,54 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
       }
     },
   });
+
+  // Sincronizar atualizações da tabela room_players em tempo real para a TV
+  useEffect(() => {
+    const isValidUuid = (str?: string) =>
+      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+    if (!roomId || !isValidUuid(roomId)) return;
+
+    const channel = supabase
+      .channel(`tv_players_sync_${roomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_players',
+          filter: `room_id=eq.${roomId}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' && payload.new) {
+            const updated = payload.new as any;
+            const tasksCount = Array.isArray(updated.completed_tasks)
+              ? updated.completed_tasks.length
+              : typeof updated.completed_tasks === 'number'
+              ? updated.completed_tasks
+              : 0;
+
+            setPlayers((prev) =>
+              prev.map((p) =>
+                p.id === updated.id
+                  ? {
+                      ...p,
+                      completed_tasks: tasksCount,
+                      is_alive: updated.status === 'ALIVE',
+                      role: updated.role || p.role,
+                    }
+                  : p
+              )
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [roomId, supabase]);
 
   // Habilitar áudio na TV mediante interação
   const handleEnableAudio = () => {

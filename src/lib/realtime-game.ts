@@ -47,6 +47,13 @@ export interface GameStartedPayload {
   timestamp: number;
 }
 
+export interface TaskCompletedPayload {
+  taskId?: string;
+  playerId?: string;
+  playerName?: string;
+  completedCount?: number;
+}
+
 export interface UseRealtimeGameProps {
   roomId: string;
   roomCode?: string;
@@ -60,6 +67,7 @@ export interface UseRealtimeGameProps {
   onEmergencyMeeting?: (payload: EmergencyMeetingPayload) => void;
   onSabotageTriggered?: (payload: SabotageTriggeredPayload) => void;
   onSabotageFixed?: (payload: SabotageFixedPayload) => void;
+  onTaskCompleted?: (payload: TaskCompletedPayload) => void;
   onSkipDiscussion?: () => void;
   onVoteCast?: (payload: any) => void;
   onVotingFinished?: (payload: any) => void;
@@ -82,6 +90,7 @@ export function useRealtimeGame({
   onEmergencyMeeting,
   onSabotageTriggered,
   onSabotageFixed,
+  onTaskCompleted,
   onSkipDiscussion,
   onVoteCast,
   onVotingFinished,
@@ -104,6 +113,7 @@ export function useRealtimeGame({
     onEmergencyMeeting,
     onSabotageTriggered,
     onSabotageFixed,
+    onTaskCompleted,
     onSkipDiscussion,
     onVoteCast,
     onVotingFinished,
@@ -118,6 +128,7 @@ export function useRealtimeGame({
     onEmergencyMeeting,
     onSabotageTriggered,
     onSabotageFixed,
+    onTaskCompleted,
     onSkipDiscussion,
     onVoteCast,
     onVotingFinished,
@@ -325,6 +336,14 @@ export function useRealtimeGame({
         .on('broadcast', { event: 'sabotage_fixed' }, (payload) => {
           const data = payload.payload as SabotageFixedPayload;
           if (callbacksRef.current.onSabotageFixed) callbacksRef.current.onSabotageFixed(data);
+        })
+        .on('broadcast', { event: 'TASK_COMPLETED' }, (payload) => {
+          const data = payload.payload as TaskCompletedPayload;
+          if (callbacksRef.current.onTaskCompleted) callbacksRef.current.onTaskCompleted(data);
+        })
+        .on('broadcast', { event: 'task_completed' }, (payload) => {
+          const data = payload.payload as TaskCompletedPayload;
+          if (callbacksRef.current.onTaskCompleted) callbacksRef.current.onTaskCompleted(data);
         })
         .on('broadcast', { event: 'SKIP_DISCUSSION' }, () => {
           if (callbacksRef.current.onSkipDiscussion) callbacksRef.current.onSkipDiscussion();

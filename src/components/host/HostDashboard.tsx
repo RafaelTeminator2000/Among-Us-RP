@@ -34,6 +34,7 @@ interface Player {
   color_hex: string;
   status: string;
   role?: string | null;
+  completed_tasks?: any;
 }
 
 interface HostDashboardProps {
@@ -99,6 +100,30 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
       if (interval) clearInterval(interval);
     };
   }, [isGameRunning]);
+
+  // Recálculo dinâmico do progresso global de tarefas
+  const alivePlayersCount = players.filter((p) => p.status === "ALIVE").length;
+  const totalRoomTasks = Math.max(
+    1,
+    (alivePlayersCount > 0 ? alivePlayersCount : players.length || 1) * taskCount
+  );
+  const totalCompletedTasks = players.reduce((acc, p) => {
+    let count = 0;
+    if (Array.isArray(p.completed_tasks)) {
+      count = p.completed_tasks.length;
+    } else if (typeof p.completed_tasks === "number") {
+      count = p.completed_tasks;
+    }
+    return acc + count;
+  }, 0);
+  const calculatedGlobalTaskProgress = Math.min(
+    100,
+    Math.round((totalCompletedTasks / totalRoomTasks) * 100)
+  );
+
+  useEffect(() => {
+    setGlobalTaskProgress(calculatedGlobalTaskProgress);
+  }, [calculatedGlobalTaskProgress]);
 
   // Escuta Realtime e Presença
   useEffect(() => {
@@ -191,11 +216,44 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         }
       })
       .on("broadcast", { event: "TASK_COMPLETED" }, ({ payload }) => {
-        setGlobalTaskProgress((prev) => Math.min(100, prev + 12));
+        if (payload?.playerId) {
+          setPlayers((prev) =>
+            prev.map((p) => {
+              if (p.id === payload.playerId) {
+                const currentCount = Array.isArray(p.completed_tasks)
+                  ? p.completed_tasks.length
+                  : typeof p.completed_tasks === "number"
+                  ? p.completed_tasks
+                  : 0;
+                const newCount = payload.completedCount ?? (currentCount + 1);
+                return { ...p, completed_tasks: newCount };
+              }
+              return p;
+            })
+          );
+        }
         setActionLogs((prev) => [
-          `✓ Tarefa concluída: ${payload?.taskName || "Painel"} por ${payload?.playerName || "Tripulante"}`,
+          `✓ Tarefa concluída por ${payload?.playerName || payload?.name || "Tripulante"}`,
           ...prev.slice(0, 8),
         ]);
+      })
+      .on("broadcast", { event: "task_completed" }, ({ payload }) => {
+        if (payload?.playerId) {
+          setPlayers((prev) =>
+            prev.map((p) => {
+              if (p.id === payload.playerId) {
+                const currentCount = Array.isArray(p.completed_tasks)
+                  ? p.completed_tasks.length
+                  : typeof p.completed_tasks === "number"
+                  ? p.completed_tasks
+                  : 0;
+                const newCount = payload.completedCount ?? (currentCount + 1);
+                return { ...p, completed_tasks: newCount };
+              }
+              return p;
+            })
+          );
+        }
       })
       .on("broadcast", { event: "KILL_PERFORMED" }, ({ payload }) => {
         setActionLogs((prev) => [
@@ -208,6 +266,30 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           `🚨 REUNIÃO DE EMERGÊNCIA acionada por ${payload?.reporterName || "Tripulante"}!`,
           ...prev.slice(0, 8),
         ]);
+      })
+      .on("broadcast", { event: "CREWMATE_VICTORY" }, ({ payload }) => {
+        setStatusMessage("🎉 Vitória dos Tripulantes! Todas as tarefas foram concluídas (100%).");
+        setActionLogs((prev) => [
+          `🏆 VITÓRIA DOS TRIPULANTES! Todas as tarefas concluídas.`,
+          ...prev.slice(0, 8),
+        ]);
+      })
+      .on("broadcast", { event: "crewmate_victory" }, ({ payload }) => {
+        setStatusMessage("🎉 Vitória dos Tripulantes! Todas as tarefas foram concluídas (100%).");
+        setActionLogs((prev) => [
+          `🏆 VITÓRIA DOS TRIPULANTES! Todas as tarefas concluídas.`,
+          ...prev.slice(0, 8),
+        ]);
+      })
+      .on("broadcast", { event: "RETURN_TO_LOBBY" }, () => {
+        setIsGameRunning(false);
+        setActiveTab("LOBBY");
+        setStatusMessage("Retornado ao Lobby de espera.");
+      })
+      .on("broadcast", { event: "return_to_lobby" }, () => {
+        setIsGameRunning(false);
+        setActiveTab("LOBBY");
+        setStatusMessage("Retornado ao Lobby de espera.");
       });
 
     if (isValidUuid) {
