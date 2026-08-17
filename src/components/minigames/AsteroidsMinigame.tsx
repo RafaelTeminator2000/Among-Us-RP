@@ -9,30 +9,35 @@ interface AsteroidsMinigameProps {
   targetCount?: number;
 }
 
-interface Asteroid {
-  id: number;
-  x: number; // Porcentagem (0-100)
-  y: number; // Porcentagem (0-100)
-  vx: number; // Velocidade X
-  vy: number; // Velocidade Y
-  size: number; // Tamanho em px
-  rotation: number;
-  rotSpeed: number;
-}
-
-interface LaserBlast {
-  id: number;
-  targetX: number;
-  targetY: number;
-}
-
-interface Particle {
+interface AsteroidEntity {
   id: number;
   x: number;
   y: number;
   vx: number;
   vy: number;
+  radius: number;
+  rotation: number;
+  rotSpeed: number;
+  shapePoints: { x: number; y: number }[];
+  craters: { x: number; y: number; r: number }[];
+}
+
+interface LaserEntity {
+  targetX: number;
+  targetY: number;
+  alpha: number;
+  decay: number;
+}
+
+interface ParticleEntity {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
   color: string;
+  alpha: number;
+  decay: number;
 }
 
 export const AsteroidsMinigame: React.FC<AsteroidsMinigameProps> = ({
@@ -41,17 +46,27 @@ export const AsteroidsMinigame: React.FC<AsteroidsMinigameProps> = ({
   targetCount = 20,
 }) => {
   const [destroyedCount, setDestroyedCount] = useState<number>(0);
-  const [asteroids, setAsteroids] = useState<Asteroid[]>([]);
-  const [lasers, setLasers] = useState<LaserBlast[]>([]);
-  const [particles, setParticles] = useState<Particle[]>([]);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [recoil, setRecoil] = useState<boolean>(false);
 
-  const nextAsteroidIdRef = useRef<number>(1);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const destroyedCountRef = useRef<number>(0);
-  const animFrameRef = useRef<number | null>(null);
+  const isCompletedRef = useRef<boolean>(false);
+  const nextIdRef = useRef<number>(1);
 
-  // Determinar o Tier de Dificuldade (1 a 4 a cada 5 asteroides destruídos)
+  // Entidades do motor de física em Canvas (Zero React state overhead)
+  const asteroidsRef = useRef<AsteroidEntity[]>([]);
+  const laserRef = useRef<LaserEntity | null>(null);
+  const particlesRef = useRef<ParticleEntity[]>([]);
+  const lastSpawnTimeRef = useRef<number>(0);
+  const cannonAngleRef = useRef<number>(-Math.PI / 2); // Ângulo para cima por padrão
+  const onCompleteRef = useRef(onComplete);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  // Tier de Dificuldade (1 a 4 a cada 5 asteroides destruídos)
   const currentTier = Math.min(4, Math.floor(destroyedCount / 5) + 1);
 
   // Síntese de áudio WebAudio de laser e explosão
@@ -63,14 +78,14 @@ export const AsteroidsMinigame: React.FC<AsteroidsMinigameProps> = ({
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(800, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.frequency.setValueAtTime(850, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(120, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.14, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
-      osc.stop(ctx.currentTime + 0.15);
+      osc.stop(ctx.currentTime + 0.12);
     } catch {}
   }, []);
 
@@ -82,179 +97,364 @@ export const AsteroidsMinigame: React.FC<AsteroidsMinigameProps> = ({
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'square';
-      osc.frequency.setValueAtTime(120, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.2);
-      gain.gain.setValueAtTime(0.18, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+      osc.frequency.setValueAtTime(140, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(35, ctx.currentTime + 0.18);
+      gain.gain.setValueAtTime(0.16, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
-      osc.stop(ctx.currentTime + 0.2);
+      osc.stop(ctx.currentTime + 0.18);
     } catch {}
   }, []);
 
-  // Spawnar novo asteroide com velocidade proporcional ao Tier atual
-  const spawnAsteroid = useCallback(() => {
-    const dCount = destroyedCountRef.current;
-    const tier = Math.min(4, Math.floor(dCount / 5) + 1);
-
-    // Ajustes de velocidade por Tier:
-    // Tier 1: 0.35 a 0.55
-    // Tier 2: 0.65 a 0.95
-    // Tier 3: 1.05 a 1.45
-    // Tier 4: 1.55 a 2.10
-    let baseSpeed = 0.35;
-    let speedVariance = 0.2;
-    let maxVisible = 5;
+  // Gerar um asteroide com geometria irregular
+  const createAsteroid = (width: number, height: number, tier: number): AsteroidEntity => {
+    let baseSpeed = 1.2;
+    let speedVar = 0.8;
 
     if (tier === 2) {
-      baseSpeed = 0.65;
-      speedVariance = 0.3;
-      maxVisible = 7;
+      baseSpeed = 2.0;
+      speedVar = 1.0;
     } else if (tier === 3) {
-      baseSpeed = 1.05;
-      speedVariance = 0.4;
-      maxVisible = 9;
+      baseSpeed = 3.0;
+      speedVar = 1.4;
     } else if (tier === 4) {
-      baseSpeed = 1.55;
-      speedVariance = 0.55;
-      maxVisible = 12;
+      baseSpeed = 4.2;
+      speedVar = 1.8;
     }
 
+    const radius = 20 + Math.random() * 14;
     const fromLeft = Math.random() > 0.5;
-    const startX = fromLeft ? -10 : 110;
-    const startY = 15 + Math.random() * 70;
-    const targetX = fromLeft ? 110 : -10;
-    const targetY = 15 + Math.random() * 70;
+    const startX = fromLeft ? -radius - 10 : width + radius + 10;
+    const startY = 30 + Math.random() * (height - 80);
+    const targetX = fromLeft ? width + radius + 10 : -radius - 10;
+    const targetY = 30 + Math.random() * (height - 80);
 
     const angle = Math.atan2(targetY - startY, targetX - startX);
-    const speed = baseSpeed + Math.random() * speedVariance;
+    const speed = baseSpeed + Math.random() * speedVar;
 
-    const newAst: Asteroid = {
-      id: nextAsteroidIdRef.current++,
+    // Gerar formato poligonal irregular com crateras
+    const numPoints = 8;
+    const shapePoints = [];
+    for (let i = 0; i < numPoints; i++) {
+      const a = (i / numPoints) * Math.PI * 2;
+      const r = radius * (0.8 + Math.random() * 0.4);
+      shapePoints.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+    }
+
+    const craters = [
+      { x: -radius * 0.3, y: -radius * 0.2, r: radius * 0.22 },
+      { x: radius * 0.35, y: radius * 0.25, r: radius * 0.18 },
+    ];
+
+    return {
+      id: nextIdRef.current++,
       x: startX,
       y: startY,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      size: 38 + Math.random() * 26,
-      rotation: Math.random() * 360,
-      rotSpeed: (Math.random() - 0.5) * (4 + tier * 2),
+      radius,
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.05 * tier,
+      shapePoints,
+      craters,
     };
-
-    setAsteroids((prev) => [...prev.slice(-maxVisible), newAst]);
-  }, []);
-
-  // Loop de Animação e Física dos Asteroides
-  useEffect(() => {
-    let lastSpawn = Date.now();
-
-    const loop = () => {
-      const now = Date.now();
-      const dCount = destroyedCountRef.current;
-      const tier = Math.min(4, Math.floor(dCount / 5) + 1);
-      const spawnInterval = tier === 4 ? 320 : tier === 3 ? 480 : tier === 2 ? 680 : 880;
-
-      if (now - lastSpawn > spawnInterval && !isCompleted) {
-        spawnAsteroid();
-        lastSpawn = now;
-      }
-
-      // Mover asteroides
-      setAsteroids((prev) =>
-        prev
-          .map((ast) => ({
-            ...ast,
-            x: ast.x + ast.vx,
-            y: ast.y + ast.vy,
-            rotation: ast.rotation + ast.rotSpeed,
-          }))
-          .filter((ast) => ast.x >= -20 && ast.x <= 120 && ast.y >= -20 && ast.y <= 120)
-      );
-
-      // Mover partículas
-      setParticles((prev) =>
-        prev
-          .map((p) => ({
-            ...p,
-            x: p.x + p.vx,
-            y: p.y + p.vy,
-          }))
-          .slice(-25)
-      );
-
-      if (!isCompleted) {
-        animFrameRef.current = requestAnimationFrame(loop);
-      }
-    };
-
-    animFrameRef.current = requestAnimationFrame(loop);
-
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    };
-  }, [isCompleted, spawnAsteroid]);
-
-  // Atirar e Destruir Asteroide
-  const handleShootAsteroid = (ast: Asteroid, e: React.MouseEvent | React.TouchEvent) => {
-    if (isCompleted) return;
-    e.stopPropagation();
-
-    playLaserSound();
-    setTimeout(playExplosionSound, 50);
-
-    // Efeito de Recuo do Cockpit
-    setRecoil(true);
-    setTimeout(() => setRecoil(false), 80);
-
-    if (typeof window !== 'undefined' && 'navigator' in window && navigator.vibrate) {
-      navigator.vibrate(35);
-    }
-
-    // Gerar lasers duplos da cabine
-    const blastId = Date.now();
-    setLasers([{ id: blastId, targetX: ast.x, targetY: ast.y }]);
-    setTimeout(() => setLasers([]), 120);
-
-    // Gerar partículas de explosão
-    const newParticles: Particle[] = Array.from({ length: 6 }, (_, i) => ({
-      id: blastId + i,
-      x: ast.x,
-      y: ast.y,
-      vx: (Math.random() - 0.5) * 1.5,
-      vy: (Math.random() - 0.5) * 1.5,
-      color: Math.random() > 0.5 ? '#f59e0b' : '#78716c',
-    }));
-    setParticles((prev) => [...prev, ...newParticles]);
-
-    // Remover asteroide destruído
-    setAsteroids((prev) => prev.filter((a) => a.id !== ast.id));
-
-    const updatedDestroyed = destroyedCountRef.current + 1;
-    destroyedCountRef.current = updatedDestroyed;
-    setDestroyedCount(updatedDestroyed);
-
-    if (updatedDestroyed >= targetCount) {
-      setIsCompleted(true);
-      if (typeof window !== 'undefined' && 'navigator' in window && navigator.vibrate) {
-        navigator.vibrate([50, 80, 50, 80, 150]);
-      }
-      setTimeout(() => onComplete(), 800);
-    }
   };
 
-  // Disparar no vazio da tela
-  const handleFireMiss = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isCompleted) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = ((e.clientX - rect.left) / rect.width) * 100;
-    const clickY = ((e.clientY - rect.top) / rect.height) * 100;
+  // Loop de Renderização e Física 60 FPS com Canvas 2D
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animId: number;
+
+    const render = () => {
+      const width = canvas.width;
+      const height = canvas.height;
+      const now = performance.now();
+      const dCount = destroyedCountRef.current;
+      const tier = Math.min(4, Math.floor(dCount / 5) + 1);
+
+      // Spawn interval por tier
+      const spawnInterval = tier === 4 ? 280 : tier === 3 ? 420 : tier === 2 ? 620 : 850;
+      const maxAsteroids = tier === 4 ? 12 : tier === 3 ? 9 : tier === 2 ? 6 : 4;
+
+      if (now - lastSpawnTimeRef.current > spawnInterval && !isCompletedRef.current) {
+        if (asteroidsRef.current.length < maxAsteroids) {
+          asteroidsRef.current.push(createAsteroid(width, height, tier));
+          lastSpawnTimeRef.current = now;
+        }
+      }
+
+      // 1. Limpar Tela
+      ctx.clearRect(0, 0, width, height);
+
+      // 2. Desenhar Grade de Fundo e Radar
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, width, height);
+
+      // Fundo estrelado estático
+      ctx.fillStyle = '#1e293b';
+      for (let i = 0; i < 30; i++) {
+        const sx = ((i * 47) % width);
+        const sy = ((i * 83) % height);
+        ctx.fillRect(sx, sy, 1.5, 1.5);
+      }
+
+      // Círculos de radar verde wireframe
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.15)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(width / 2, height / 2, width * 0.35, 0, Math.PI * 2);
+      ctx.arc(width / 2, height / 2, width * 0.2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Linhas cruzadas do radar
+      ctx.beginPath();
+      ctx.moveTo(width / 2, 0);
+      ctx.lineTo(width / 2, height);
+      ctx.moveTo(0, height / 2);
+      ctx.lineTo(width, height / 2);
+      ctx.stroke();
+
+      // 3. Atualizar e Desenhar Asteroides
+      const aliveAsteroids: AsteroidEntity[] = [];
+      for (const ast of asteroidsRef.current) {
+        ast.x += ast.vx;
+        ast.y += ast.vy;
+        ast.rotation += ast.rotSpeed;
+
+        // Manter se dentro do espaço útil
+        if (
+          ast.x >= -ast.radius - 30 &&
+          ast.x <= width + ast.radius + 30 &&
+          ast.y >= -ast.radius - 30 &&
+          ast.y <= height + ast.radius + 30
+        ) {
+          aliveAsteroids.push(ast);
+
+          // Desenhar Asteroide
+          ctx.save();
+          ctx.translate(ast.x, ast.y);
+          ctx.rotate(ast.rotation);
+
+          // Corpo do Asteroide
+          ctx.fillStyle = '#44403c';
+          ctx.strokeStyle = '#78716c';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ast.shapePoints.forEach((pt, idx) => {
+            if (idx === 0) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
+          });
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          // Crateras internas
+          ctx.fillStyle = '#292524';
+          ast.craters.forEach((c) => {
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+            ctx.fill();
+          });
+
+          ctx.restore();
+        }
+      }
+      asteroidsRef.current = aliveAsteroids;
+
+      // 4. Desenhar Laser Único do Canhão Central
+      if (laserRef.current) {
+        const l = laserRef.current;
+        const cannonBaseX = width / 2;
+        const cannonBaseY = height - 12;
+
+        ctx.save();
+        ctx.strokeStyle = `rgba(239, 68, 68, ${l.alpha})`;
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 16;
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+
+        ctx.beginPath();
+        ctx.moveTo(cannonBaseX, cannonBaseY);
+        ctx.lineTo(l.targetX, l.targetY);
+        ctx.stroke();
+
+        // Núcleo branco brilhante do laser
+        ctx.strokeStyle = `rgba(255, 255, 255, ${l.alpha})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cannonBaseX, cannonBaseY);
+        ctx.lineTo(l.targetX, l.targetY);
+        ctx.stroke();
+
+        ctx.restore();
+
+        l.alpha -= l.decay;
+        if (l.alpha <= 0) {
+          laserRef.current = null;
+        }
+      }
+
+      // 5. Atualizar e Desenhar Partículas de Explosão
+      const aliveParticles: ParticleEntity[] = [];
+      for (const p of particlesRef.current) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= p.decay;
+
+        if (p.alpha > 0) {
+          aliveParticles.push(p);
+
+          ctx.save();
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.alpha;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      particlesRef.current = aliveParticles;
+
+      // 6. Desenhar Canhão Central Único na Base
+      const cannonX = width / 2;
+      const cannonY = height - 10;
+      const cannonAngle = cannonAngleRef.current;
+
+      ctx.save();
+      ctx.translate(cannonX, cannonY);
+
+      // Base da torre central
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Tubo / Cano giratório do canhão
+      ctx.rotate(cannonAngle + Math.PI / 2);
+      ctx.fillStyle = '#ef4444';
+      ctx.strokeStyle = '#991b1b';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(-4, -26, 8, 22);
+      ctx.strokeRect(-4, -26, 8, 22);
+
+      // Núcleo do canhão
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(0, 0, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+
+      if (!isCompletedRef.current) {
+        animId = requestAnimationFrame(render);
+      }
+    };
+
+    animId = requestAnimationFrame(render);
+
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+  // Interação de Toque / Clique no Canvas (Disparo Preciso)
+  const handleCanvasInteraction = (clientX: number, clientY: number) => {
+    if (isCompletedRef.current || !canvasRef.current) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const scaleX = canvasRef.current.width / rect.width;
+    const scaleY = canvasRef.current.height / rect.height;
+
+    const clickX = (clientX - rect.left) * scaleX;
+    const clickY = (clientY - rect.top) * scaleY;
+
+    // Calcular ângulo da torre central para o ponto clicado
+    const cannonBaseX = canvasRef.current.width / 2;
+    const cannonBaseY = canvasRef.current.height - 10;
+    cannonAngleRef.current = Math.atan2(clickY - cannonBaseY, clickX - cannonBaseX);
 
     playLaserSound();
-    setRecoil(true);
-    setTimeout(() => setRecoil(false), 80);
 
-    setLasers([{ id: Date.now(), targetX: clickX, targetY: clickY }]);
-    setTimeout(() => setLasers([]), 120);
+    // Recuo do console
+    setRecoil(true);
+    setTimeout(() => setRecoil(false), 70);
+
+    // Encontrar asteroide atingido (Hitbox generosa: raio + 18px para máxima precisão)
+    let hitIndex = -1;
+    for (let i = asteroidsRef.current.length - 1; i >= 0; i--) {
+      const ast = asteroidsRef.current[i];
+      const dist = Math.hypot(clickX - ast.x, clickY - ast.y);
+      if (dist <= ast.radius + 18) {
+        hitIndex = i;
+        break;
+      }
+    }
+
+    if (hitIndex !== -1) {
+      // ACERTO!
+      const hitAst = asteroidsRef.current[hitIndex];
+      asteroidsRef.current.splice(hitIndex, 1);
+
+      playExplosionSound();
+
+      if (typeof window !== 'undefined' && 'navigator' in window && navigator.vibrate) {
+        navigator.vibrate(30);
+      }
+
+      // Criar laser único direcionado ao asteroide
+      laserRef.current = {
+        targetX: hitAst.x,
+        targetY: hitAst.y,
+        alpha: 1.0,
+        decay: 0.12,
+      };
+
+      // Gerar partículas de explosão
+      for (let i = 0; i < 10; i++) {
+        const pAngle = Math.random() * Math.PI * 2;
+        const pSpeed = 1.5 + Math.random() * 3.5;
+        particlesRef.current.push({
+          x: hitAst.x,
+          y: hitAst.y,
+          vx: Math.cos(pAngle) * pSpeed,
+          vy: Math.sin(pAngle) * pSpeed,
+          radius: 2 + Math.random() * 2.5,
+          color: Math.random() > 0.4 ? '#f59e0b' : '#ef4444',
+          alpha: 1.0,
+          decay: 0.05 + Math.random() * 0.05,
+        });
+      }
+
+      const nextCount = destroyedCountRef.current + 1;
+      destroyedCountRef.current = nextCount;
+      setDestroyedCount(nextCount);
+
+      if (nextCount >= targetCount) {
+        isCompletedRef.current = true;
+        setIsCompleted(true);
+        if (typeof window !== 'undefined' && 'navigator' in window && navigator.vibrate) {
+          navigator.vibrate([50, 80, 50, 80, 150]);
+        }
+        setTimeout(() => onCompleteRef.current(), 750);
+      }
+    } else {
+      // DISPARO NO VAZIO
+      laserRef.current = {
+        targetX: clickX,
+        targetY: clickY,
+        alpha: 1.0,
+        decay: 0.14,
+      };
+    }
   };
 
   const remaining = Math.max(0, targetCount - destroyedCount);
@@ -263,7 +463,7 @@ export const AsteroidsMinigame: React.FC<AsteroidsMinigameProps> = ({
     <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 p-3 sm:p-4 flex items-center justify-center select-none animate-in fade-in">
       {/* Console de Armas */}
       <div
-        className={`w-full max-w-sm bg-slate-900 border-4 border-slate-700 rounded-3xl p-4 shadow-2xl relative overflow-hidden flex flex-col items-center gap-3 transition-transform ${
+        className={`w-full max-w-sm bg-slate-900 border-4 border-slate-700 rounded-3xl p-4 shadow-2xl relative overflow-hidden flex flex-col items-center gap-3 transition-transform duration-75 ${
           recoil ? '-translate-y-1' : 'translate-y-0'
         }`}
       >
@@ -287,34 +487,18 @@ export const AsteroidsMinigame: React.FC<AsteroidsMinigameProps> = ({
             <span>DESTRUIR ASTEROIDES</span>
           </h2>
           <p className="text-[10px] font-mono font-bold text-slate-400">
-            Toque nos asteroides que cruzam o espaço para destruí-los
+            Toque nos asteroides para disparar o canhão central
           </p>
         </div>
 
-        {/* Cabine Espacial com Radar e Asteroides */}
-        <div
-          onClick={handleFireMiss}
-          className="relative w-full h-80 bg-slate-950 rounded-2xl border-2 border-emerald-500/50 overflow-hidden shadow-[0_0_30px_rgba(16,185,129,0.15)] cursor-crosshair touch-none"
-        >
-          {/* Fundo Estrelado */}
-          <div className="absolute inset-0 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:20px_20px] opacity-25 pointer-events-none" />
-
-          {/* Mira e Grade Wireframe Verde */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-40">
-            <div className="w-48 h-48 rounded-full border border-emerald-400/50 flex items-center justify-center">
-              <div className="w-24 h-24 rounded-full border border-emerald-400/40" />
-            </div>
-            <div className="absolute inset-x-0 h-px bg-emerald-400/30" />
-            <div className="absolute inset-y-0 w-px bg-emerald-400/30" />
-          </div>
-
-          {/* Contador de Destroços Restantes & Nível de Velocidade (Tier 1 a 4) */}
+        {/* Canvas de Alta Performance 60FPS */}
+        <div className="relative w-full h-80 bg-slate-950 rounded-2xl border-2 border-emerald-500/50 overflow-hidden shadow-[0_0_30px_rgba(16,185,129,0.15)] touch-none cursor-crosshair">
+          {/* Header com Contador e Badge de Tier */}
           <div className="absolute top-2.5 left-3 right-3 flex items-center justify-between pointer-events-none z-20">
             <div className="bg-slate-900/90 border border-emerald-500/60 px-3 py-1 rounded-xl text-[10px] font-mono font-black text-emerald-400 shadow">
               RESTANTES: <span className="text-white text-xs">{remaining}</span> / {targetCount}
             </div>
 
-            {/* Badge de Dificuldade com 4 Tiers */}
             <div
               className={`px-2.5 py-1 rounded-xl text-[10px] font-mono font-black border flex items-center gap-1 shadow ${
                 currentTier === 4
@@ -331,78 +515,13 @@ export const AsteroidsMinigame: React.FC<AsteroidsMinigameProps> = ({
             </div>
           </div>
 
-          {/* SVG para os Raios Lasers Duplos da Cabine */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
-            {lasers.map((l) => (
-              <g key={l.id}>
-                {/* Laser Canhão Esquerdo */}
-                <line
-                  x1="10%"
-                  y1="95%"
-                  x2={`${l.targetX}%`}
-                  y2={`${l.targetY}%`}
-                  stroke="#ef4444"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  style={{ filter: 'drop-shadow(0 0 8px #ef4444)' }}
-                />
-                {/* Laser Canhão Direito */}
-                <line
-                  x1="90%"
-                  y1="95%"
-                  x2={`${l.targetX}%`}
-                  y2={`${l.targetY}%`}
-                  stroke="#ef4444"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  style={{ filter: 'drop-shadow(0 0 8px #ef4444)' }}
-                />
-              </g>
-            ))}
-          </svg>
-
-          {/* Asteroides em Movimento */}
-          {asteroids.map((ast) => (
-            <div
-              key={ast.id}
-              onClick={(e) => handleShootAsteroid(ast, e)}
-              style={{
-                left: `${ast.x}%`,
-                top: `${ast.y}%`,
-                width: `${ast.size}px`,
-                height: `${ast.size}px`,
-                transform: `translate(-50%, -50%) rotate(${ast.rotation}deg)`,
-              }}
-              className="absolute z-20 cursor-pointer flex items-center justify-center active:scale-95 transition-transform"
-            >
-              {/* Formato de Rocha Espacial com Cratera */}
-              <div className="w-full h-full bg-stone-700 border-2 border-stone-500 rounded-3xl shadow-lg relative flex items-center justify-center">
-                <div className="w-3 h-3 bg-stone-900 rounded-full absolute top-2 left-2 opacity-60" />
-                <div className="w-2 h-2 bg-stone-900 rounded-full absolute bottom-3 right-3 opacity-60" />
-              </div>
-            </div>
-          ))}
-
-          {/* Partículas de Fragmentação */}
-          {particles.map((p) => (
-            <div
-              key={p.id}
-              style={{
-                left: `${p.x}%`,
-                top: `${p.y}%`,
-                backgroundColor: p.color,
-              }}
-              className="absolute w-2 h-2 rounded-full shadow pointer-events-none animate-ping"
-            />
-          ))}
-
-          {/* Canhões da Cabine Inferior (Esquerdo e Direito) */}
-          <div className="absolute bottom-0 left-2 w-12 h-8 bg-slate-800 border-2 border-slate-600 rounded-t-xl z-20 pointer-events-none flex items-center justify-center">
-            <div className="w-3 h-5 bg-red-600 rounded-t-sm" />
-          </div>
-          <div className="absolute bottom-0 right-2 w-12 h-8 bg-slate-800 border-2 border-slate-600 rounded-t-xl z-20 pointer-events-none flex items-center justify-center">
-            <div className="w-3 h-5 bg-red-600 rounded-t-sm" />
-          </div>
+          <canvas
+            ref={canvasRef}
+            width={340}
+            height={320}
+            onPointerDown={(e) => handleCanvasInteraction(e.clientX, e.clientY)}
+            className="w-full h-full block"
+          />
         </div>
 
         {/* Feedback de Status */}
@@ -413,7 +532,7 @@ export const AsteroidsMinigame: React.FC<AsteroidsMinigameProps> = ({
           </div>
         ) : (
           <div className="text-[11px] font-mono text-slate-400">
-            A velocidade dos asteroides aumenta a cada 5 alvos destruídos
+            Disparo único central calibrado • 60 FPS
           </div>
         )}
       </div>
