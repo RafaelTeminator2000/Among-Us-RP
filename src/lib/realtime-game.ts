@@ -299,6 +299,12 @@ export function useRealtimeGame({
         .on('broadcast', { event: 'crewmate_victory' }, (payload) => {
           if (callbacksRef.current.onCrewmateVictory) callbacksRef.current.onCrewmateVictory(payload.payload);
         })
+        .on('broadcast', { event: 'RETURN_TO_LOBBY' }, () => {
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');
+        })
+        .on('broadcast', { event: 'return_to_lobby' }, () => {
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');
+        })
         .on('broadcast', { event: 'player_killed' }, (payload) => {
           const data = payload.payload as PlayerKilledPayload;
           if (callbacksRef.current.onPlayerKilled) callbacksRef.current.onPlayerKilled(data);
