@@ -18,6 +18,8 @@ import { WireMinigame } from '@/components/minigames/WireMinigame';
 import { SwipeCardMinigame } from '@/components/minigames/SwipeCardMinigame';
 import { ManifoldsMinigame } from '@/components/minigames/ManifoldsMinigame';
 import { CalibrateDistributorMinigame } from '@/components/minigames/CalibrateDistributorMinigame';
+import { KeypadMinigame } from '@/components/minigames/KeypadMinigame';
+import { EmergencyButtonModal } from '@/components/minigames/EmergencyButtonModal';
 import { DarknessOverlay } from '@/components/game/DarknessOverlay';
 import { BreakerMinigame } from '@/components/minigames/BreakerMinigame';
 import { ScratchMapPlan, TaskNode, DEFAULT_DEMO_MAP } from '@/types/grid-editor';
@@ -68,7 +70,7 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [showReportScanner, setShowReportScanner] = useState<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<TaskNode | null>(null);
   const [activeMinigame, setActiveMinigame] = useState<
-    'qr' | 'wires' | 'card_swipe' | 'manifolds' | 'distributor' | null
+    'qr' | 'wires' | 'card_swipe' | 'manifolds' | 'distributor' | 'keypad' | 'emergency_button' | null
   >(null);
   const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
   const [rolesMap, setRolesMap] = useState<Record<string, 'CREWMATE' | 'IMPOSTOR'>>(() => {
@@ -89,9 +91,76 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [roleRevealToast, setRoleRevealToast] = useState<{
     role: 'CREWMATE' | 'IMPOSTOR';
   } | null>(null);
+  const [showTestDrawer, setShowTestDrawer] = useState<boolean>(false);
 
   const { initAudio, playSiren, playEmergencyBuzzer, playTaskBeep, stopAll } = useGameAudio();
   const supabase = useMemo(() => createClient(), []);
+
+  // Iniciar partida sandbox local/demo para testes de minigames
+  const startSandboxMatch = (roleToSet: 'CREWMATE' | 'IMPOSTOR' = 'CREWMATE') => {
+    initAudio();
+    setRoomStatus('PLAYING');
+    setVictoryModal(null);
+    setCompletedTasks([]);
+    setIsLightsSabotaged(false);
+    setIsSabotaged(false);
+    setPlayerStatus('ALIVE');
+    setPlayerRole(roleToSet);
+    setMapData(DEFAULT_DEMO_MAP);
+
+    const demoPlayers: PlayerGameState[] = [
+      {
+        id: playerId || 'p-self',
+        nickname: playerName || 'Você',
+        color: playerColor || '#ef4444',
+        role: roleToSet,
+        is_alive: true,
+        is_host: false,
+        completed_tasks: 0,
+        total_tasks: 4,
+        has_voted: false,
+        voted_for_id: null,
+      },
+      {
+        id: 'p2',
+        nickname: 'Azul',
+        color: '#3b82f6',
+        role: roleToSet === 'IMPOSTOR' ? 'CREWMATE' : 'IMPOSTOR',
+        is_alive: true,
+        is_host: false,
+        completed_tasks: 2,
+        total_tasks: 4,
+        has_voted: false,
+        voted_for_id: null,
+      },
+      {
+        id: 'p3',
+        nickname: 'Amarelo',
+        color: '#eab308',
+        role: 'CREWMATE',
+        is_alive: true,
+        is_host: false,
+        completed_tasks: 1,
+        total_tasks: 4,
+        has_voted: false,
+        voted_for_id: null,
+      },
+      {
+        id: 'p4',
+        nickname: 'Verde',
+        color: '#10b981',
+        role: 'CREWMATE',
+        is_alive: true,
+        is_host: false,
+        completed_tasks: 0,
+        total_tasks: 4,
+        has_voted: false,
+        voted_for_id: null,
+      },
+    ];
+
+    setAllPlayers(demoPlayers);
+  };
 
   // 1. Carregar dados iniciais da sala e do jogador na sessão atual
   useEffect(() => {
@@ -842,6 +911,23 @@ export default function RoomPage({ params }: RoomPageProps) {
                 <span className="font-bold text-slate-200">{playerName}</span>
               </div>
             </div>
+            {/* Botões de Inicialização Rápida para Testes da Sala AX7X9 */}
+            <div className="pt-2 space-y-2">
+              <button
+                type="button"
+                onClick={() => startSandboxMatch('CREWMATE')}
+                className="w-full h-[52px] rounded-2xl btn-3d-green text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
+              >
+                <span>🚀 INICIAR TESTE COMO TRIPULANTE</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => startSandboxMatch('IMPOSTOR')}
+                className="w-full h-[46px] rounded-2xl btn-3d-red text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
+              >
+                <span>🔪 INICIAR TESTE COMO IMPOSTOR</span>
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
@@ -860,21 +946,32 @@ export default function RoomPage({ params }: RoomPageProps) {
   // Estado de Jogo Ativo (PLAYING)
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 flex flex-col justify-between max-w-md mx-auto font-sans relative">
-      {/* Header com Papel, Conexão e Barra de Tarefas */}
+      {/* Header com Papel, Conexão, Barra de Tarefas e Botão Sandbox */}
       <header className="flex flex-col gap-2.5 border-b border-slate-800 pb-3 z-10">
         <div className="flex justify-between items-center">
           <h1 className="text-sm font-black text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
             <Shield className="w-4 h-4 text-cyan-400" />
-            <span>Among Us RP • #{roomId.substring(0, 4)}</span>
+            <span>Among Us RP • #{roomId.substring(0, 5)}</span>
           </h1>
-          <div
-            className={`px-3 py-1 rounded-full text-xs font-bold ${
-              playerRole === 'IMPOSTOR'
-                ? 'bg-red-600/20 text-red-400 border border-red-500/60'
-                : 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/60'
-            }`}
-          >
-            {playerRole === 'IMPOSTOR' ? '🔪 IMPOSTOR' : '🟢 TRIPULANTE'}
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowTestDrawer(true)}
+              className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-purple-950/80 text-purple-300 border border-purple-500/80 shadow-md hover:bg-purple-900 active:scale-95 cursor-pointer flex items-center gap-1"
+            >
+              <span>🧪 TESTAR</span>
+            </button>
+
+            <div
+              className={`px-3 py-1 rounded-full text-xs font-bold ${
+                playerRole === 'IMPOSTOR'
+                  ? 'bg-red-600/20 text-red-400 border border-red-500/60'
+                  : 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/60'
+              }`}
+            >
+              {playerRole === 'IMPOSTOR' ? '🔪 IMPOSTOR' : '🟢 TRIPULANTE'}
+            </div>
           </div>
         </div>
 
@@ -914,14 +1011,24 @@ export default function RoomPage({ params }: RoomPageProps) {
         )}
       </main>
 
-      {/* Barra Inferior de Ações RP (Reportar Corpo + Sabotagem/Abate) */}
-      <div className="z-20 pt-2 flex items-center justify-between gap-2">
+      {/* Barra Inferior de Ações RP (Zona do Polegar) */}
+      <div className="z-20 pt-2 flex items-center justify-between gap-3">
         <button
+          type="button"
           onClick={() => setShowReportScanner(true)}
-          className="flex-1 flex items-center justify-center gap-2 py-3 bg-red-950/80 hover:bg-red-900/80 border border-red-600/70 text-red-300 font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg active:scale-95 transition-all"
+          className="flex-1 h-[54px] rounded-2xl btn-3d-red flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer"
         >
-          <Megaphone className="w-4 h-4 text-red-400 animate-pulse" />
-          <span>Reportar Corpo</span>
+          <Megaphone className="w-5 h-5 stroke-[2.5]" />
+          <span>REPORTAR</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMinigame('qr')}
+          className="flex-1 h-[54px] rounded-2xl btn-3d-cyan flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer"
+        >
+          <QrCode className="w-5 h-5 stroke-[2.5]" />
+          <span>USAR / ESCANEAR</span>
         </button>
       </div>
 
@@ -942,108 +1049,125 @@ export default function RoomPage({ params }: RoomPageProps) {
 
       {/* Modal de Seleção / Execução de Tarefa */}
       {selectedTask && !activeMinigame && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-40 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl max-w-sm w-full space-y-4 text-center shadow-2xl relative">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-40 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border-4 border-slate-700 p-6 rounded-3xl max-w-sm w-full space-y-4 text-center shadow-2xl relative animate-in fade-in">
             <button
               onClick={() => setSelectedTask(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full bg-slate-800 hover:bg-slate-700 transition"
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full bg-slate-800 hover:bg-slate-700 transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto ${
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-md ${
               selectedTask.type === 'EMERGENCY_BUTTON'
-                ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                ? 'bg-red-500/20 text-red-400 border-2 border-red-500/40'
                 : selectedTask.type === 'CARD_SWIPE'
-                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                ? 'bg-cyan-500/20 text-cyan-400 border-2 border-cyan-500/40'
                 : selectedTask.type === 'MANIFOLDS'
-                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                ? 'bg-cyan-500/20 text-cyan-400 border-2 border-cyan-500/40'
+                : selectedTask.type === 'KEYPAD'
+                ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
                 : selectedTask.type === 'DISTRIBUTOR'
-                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
+                : 'bg-cyan-500/20 text-cyan-400 border-2 border-cyan-500/40'
             }`}>
-              {selectedTask.type === 'EMERGENCY_BUTTON' && <Megaphone className="w-6 h-6 animate-pulse" />}
-              {selectedTask.type === 'CARD_SWIPE' && <CreditCard className="w-6 h-6" />}
-              {selectedTask.type === 'MANIFOLDS' && <KeyRound className="w-6 h-6" />}
-              {selectedTask.type === 'DISTRIBUTOR' && <Gauge className="w-6 h-6" />}
+              {selectedTask.type === 'EMERGENCY_BUTTON' && <Megaphone className="w-7 h-7 animate-pulse" />}
+              {selectedTask.type === 'CARD_SWIPE' && <CreditCard className="w-7 h-7" />}
+              {selectedTask.type === 'MANIFOLDS' && <KeyRound className="w-7 h-7" />}
+              {selectedTask.type === 'KEYPAD' && <Zap className="w-7 h-7" />}
+              {selectedTask.type === 'DISTRIBUTOR' && <Gauge className="w-7 h-7" />}
               {selectedTask.type !== 'EMERGENCY_BUTTON' &&
                 selectedTask.type !== 'CARD_SWIPE' &&
                 selectedTask.type !== 'MANIFOLDS' &&
-                selectedTask.type !== 'DISTRIBUTOR' && <Wrench className="w-6 h-6" />}
+                selectedTask.type !== 'KEYPAD' &&
+                selectedTask.type !== 'DISTRIBUTOR' && <Wrench className="w-7 h-7" />}
             </div>
 
             <div>
-              <h3 className="text-base font-black text-slate-100 uppercase">
+              <h3
+                style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
+                className="text-xl font-black text-slate-100 uppercase tracking-wider"
+              >
                 {selectedTask.room_name}
               </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Tipo: <span className="text-cyan-400 font-mono font-bold">{selectedTask.type}</span>
+              <p className="text-xs text-slate-400 mt-1 font-mono">
+                TIPO: <span className="text-cyan-400 font-bold">{selectedTask.type}</span>
               </p>
             </div>
 
             {selectedTask.type === 'EMERGENCY_BUTTON' ? (
               <div className="pt-2">
                 <button
+                  type="button"
                   onClick={() => {
-                    const taskName = selectedTask.room_name || 'Botão de Emergência Central';
-                    setSelectedTask(null);
-                    handleBodyReported(taskName);
+                    setActiveMinigame('emergency_button');
                   }}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-red-950/50 border border-red-400/40 transition-all active:scale-95 animate-pulse"
+                  className="w-full h-[52px] rounded-2xl btn-3d-red text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg animate-pulse"
                 >
                   <Megaphone className="w-4 h-4" />
-                  <span>Acionar Reunião de Emergência</span>
+                  <span>ABRIR MESA DE EMERGÊNCIA</span>
                 </button>
               </div>
             ) : (
-              <div className="space-y-2 pt-2">
+              <div className="space-y-2.5 pt-2">
                 <button
+                  type="button"
                   onClick={() => setActiveMinigame('qr')}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95"
+                  className="w-full h-[48px] rounded-2xl btn-3d-cyan text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <QrCode className="w-4 h-4" />
-                  <span>Escanear QR Code Físico</span>
+                  <span>ESCANEAR QR CODE FÍSICO</span>
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => {
                     const t = selectedTask.type?.toUpperCase();
                     if (t === 'CARD_SWIPE') {
                       setActiveMinigame('card_swipe');
                     } else if (t === 'MANIFOLDS') {
                       setActiveMinigame('manifolds');
+                    } else if (t === 'KEYPAD' || t === 'OXYGEN') {
+                      setActiveMinigame('keypad');
                     } else if (t === 'DISTRIBUTOR') {
                       setActiveMinigame('distributor');
                     } else {
                       setActiveMinigame('wires');
                     }
                   }}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-2xl text-xs uppercase tracking-wider border border-slate-700 transition-all active:scale-95"
+                  className="w-full h-[48px] rounded-2xl btn-3d-slate text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {selectedTask.type === 'CARD_SWIPE' && (
                     <>
                       <CreditCard className="w-4 h-4 text-cyan-400" />
-                      <span>Passar o Cartão</span>
+                      <span>PASSAR O CARTÃO</span>
                     </>
                   )}
                   {selectedTask.type === 'MANIFOLDS' && (
                     <>
                       <KeyRound className="w-4 h-4 text-cyan-400" />
-                      <span>Desbloquear Coletores (1-10)</span>
+                      <span>COLETORES (1 A 10)</span>
+                    </>
+                  )}
+                  {selectedTask.type === 'KEYPAD' && (
+                    <>
+                      <Zap className="w-4 h-4 text-amber-400" />
+                      <span>DIGITAR CÓDIGO</span>
                     </>
                   )}
                   {selectedTask.type === 'DISTRIBUTOR' && (
                     <>
                       <Gauge className="w-4 h-4 text-amber-400" />
-                      <span>Calibrar Distribuidor</span>
+                      <span>CALIBRAR DISTRIBUIDOR</span>
                     </>
                   )}
                   {selectedTask.type !== 'CARD_SWIPE' &&
                     selectedTask.type !== 'MANIFOLDS' &&
+                    selectedTask.type !== 'KEYPAD' &&
                     selectedTask.type !== 'DISTRIBUTOR' && (
                       <>
                         <Wrench className="w-4 h-4 text-amber-400" />
-                        <span>Minigame de Fiação</span>
+                        <span>REPARAR FIAÇÃO</span>
                       </>
                     )}
                 </button>
@@ -1127,6 +1251,37 @@ export default function RoomPage({ params }: RoomPageProps) {
             handleCompleteTask(selectedTask?.id || 'distributor-task');
           }}
           onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Teclado Numérico (Keypad / Oxygen) */}
+      {activeMinigame === 'keypad' && (
+        <KeypadMinigame
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'keypad-task');
+          }}
+          onClose={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Modal: Botão de Emergência Central */}
+      {activeMinigame === 'emergency_button' && (
+        <EmergencyButtonModal
+          playerName={playerName}
+          remainingMeetings={1}
+          onTriggerMeeting={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+            const taskName = selectedTask?.room_name || 'Botão de Emergência Central';
+            handleBodyReported(taskName);
+          }}
+          onClose={() => {
             setActiveMinigame(null);
             setSelectedTask(null);
           }}
@@ -1243,6 +1398,207 @@ export default function RoomPage({ params }: RoomPageProps) {
                 ? 'Sabote a nave e elimine a tripulação sem ser descoberto!'
                 : 'Complete todas as suas tarefas e descubra o impostor!'}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Gaveta de Testes / Sandbox (Sala AX7X9) */}
+      {showTestDrawer && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 select-none animate-in fade-in">
+          <div className="w-full max-w-sm bg-slate-900 border-4 border-purple-500 rounded-3xl p-5 shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => setShowTestDrawer(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full bg-slate-800 hover:bg-slate-700 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center pt-1 border-b border-slate-800 pb-3">
+              <span className="text-[10px] font-mono font-bold bg-purple-950 text-purple-300 border border-purple-600/60 px-3 py-0.5 rounded-full uppercase tracking-wider">
+                🧪 MESA DE TESTES RP
+              </span>
+              <h3
+                style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
+                className="text-xl font-black text-white uppercase tracking-wider mt-1"
+              >
+                TESTAR MINIGAMES & AÇÕES
+              </h3>
+              <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                Sala: <strong className="text-cyan-400">{roomId}</strong>
+              </p>
+            </div>
+
+            {/* Alternância de Papel */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-mono font-bold uppercase text-slate-400">
+                1. Papel do Jogador:
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlayerRole('CREWMATE');
+                    setShowTestDrawer(false);
+                  }}
+                  className={`h-10 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-1 cursor-pointer transition ${
+                    playerRole === 'CREWMATE'
+                      ? 'bg-cyan-600 text-slate-950 ring-2 ring-cyan-400 shadow-md'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>🟢 TRIPULANTE</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlayerRole('IMPOSTOR');
+                    setShowTestDrawer(false);
+                  }}
+                  className={`h-10 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-1 cursor-pointer transition ${
+                    playerRole === 'IMPOSTOR'
+                      ? 'bg-red-600 text-white ring-2 ring-red-400 shadow-md'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>🔪 IMPOSTOR</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Minigames Interativos */}
+            <div className="space-y-1.5 pt-1 border-t border-slate-800">
+              <span className="text-[10px] font-mono font-bold uppercase text-slate-400">
+                2. Abrir Minigames:
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('wires');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🔌</span>
+                  <span className="truncate">Fiação (4 Fios)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('card_swipe');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>💳</span>
+                  <span className="truncate">Passar Cartão</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('manifolds');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🔢</span>
+                  <span className="truncate">Coletores (1 a 10)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('distributor');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🎛️</span>
+                  <span className="truncate">Distribuidor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('keypad');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>📟</span>
+                  <span className="truncate">Teclado / Oxigênio</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setShowBreakerGame(true);
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-yellow-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>⚡</span>
+                  <span className="truncate">Disjuntores (5 Luzes)</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTestDrawer(false);
+                  setActiveMinigame('emergency_button');
+                }}
+                className="w-full p-2.5 rounded-xl bg-red-950/60 border border-red-500/60 text-red-300 text-xs font-black uppercase flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+              >
+                <span>🚨 MESA / BOTÃO DE EMERGÊNCIA</span>
+              </button>
+            </div>
+
+            {/* Ações RP & Sabotagens */}
+            <div className="space-y-1.5 pt-1 border-t border-slate-800">
+              <span className="text-[10px] font-mono font-bold uppercase text-slate-400">
+                3. Ações & Eventos RP:
+              </span>
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    handleTriggerLightsSabotage();
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black uppercase flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>SABOTAR LUZES (ESCURIDÃO + LANTERNA)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    handleBodyReported('Mesa Central');
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-black uppercase flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Megaphone className="w-4 h-4" />
+                  <span>DISPARAR REUNIÃO & VOTAÇÃO</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    handleReturnToLobby();
+                  }}
+                  className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono font-bold flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <span>Voltar ao Lobby de Espera</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

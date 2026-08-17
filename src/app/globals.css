@@ -1,25 +1,35 @@
 @import "tailwindcss";
 
+@theme {
+  --font-impact: var(--font-anton), Anton, Impact, sans-serif;
+  --font-body: var(--font-arimo), Arimo, system-ui, sans-serif;
+  --font-counter: var(--font-barlow), Barlow, sans-serif;
+  --font-mono: var(--font-mono), "Space Mono", monospace;
+
+  --color-deep-space: #030712;
+  --color-console-bg: #0f172a;
+  --color-console-border: #334155;
+  --color-fissure-bg: #020617;
+  
+  --color-cyan-primary: #06b6d4;
+  --color-cyan-border: #0891b2;
+  --color-emerald-success: #10b981;
+  --color-emerald-border: #059669;
+  --color-alert-red: #ef4444;
+  --color-alert-border: #dc2626;
+  --color-warning-amber: #eab308;
+  --color-warning-border: #ca8a04;
+}
+
 :root {
-  --background: #090d16;
-  --foreground: #f3f4f6;
-  --card: #111827;
-  --card-foreground: #f9fafb;
-  --primary: #c52222;
-  --primary-foreground: #ffffff;
-  --secondary: #1f2937;
-  --secondary-foreground: #e5e7eb;
-  --accent: #2563eb;
-  --accent-foreground: #ffffff;
-  --destructive: #dc2626;
-  --impostor-glow: rgba(220, 38, 38, 0.4);
-  --crew-glow: rgba(37, 99, 235, 0.4);
+  --background: #030712;
+  --foreground: #f8fafc;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  font-family: var(--font-arimo), system-ui, -apple-system, sans-serif;
   min-height: 100vh;
   min-height: 100dvh;
   overscroll-behavior-y: none;
@@ -27,15 +37,145 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Custom scrollbar for mobile/pwa UI */
+/* Fundo Deep Space com Grid Estelar */
+.bg-deep-space-stars {
+  background-color: #030712;
+  background-image: 
+    radial-gradient(1px 1px at 20px 30px, #ffffff, rgba(0,0,0,0)),
+    radial-gradient(1.5px 1.5px at 40px 70px, #38bdf8, rgba(0,0,0,0)),
+    radial-gradient(1px 1px at 90px 40px, #f43f5e, rgba(0,0,0,0)),
+    radial-gradient(2px 2px at 160px 120px, #e2e8f0, rgba(0,0,0,0)),
+    radial-gradient(1px 1px at 230px 190px, #38bdf8, rgba(0,0,0,0)),
+    radial-gradient(1.5px 1.5px at 290px 80px, #a855f7, rgba(0,0,0,0)),
+    radial-gradient(1px 1px at 320px 240px, #ffffff, rgba(0,0,0,0));
+  background-repeat: repeat;
+  background-size: 350px 350px;
+}
+
+/* Animação suave para estrelas flutuantes */
+@keyframes floating-star {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(2deg); }
+}
+
+.animate-floating {
+  animation: floating-star 6s ease-in-out infinite;
+}
+
+/* Primitivos de Botões Físicos 3D Táteis (Altura fixa ~54-58px, borda inferior de 4px mais escura) */
+.btn-3d-cyan {
+  background-color: #06b6d4;
+  color: #020617;
+  border-bottom: 4px solid #0891b2;
+  font-family: var(--font-anton), Anton, sans-serif;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-cyan:active {
+  transform: translateY(2px);
+  border-bottom-width: 1px;
+}
+
+.btn-3d-red {
+  background-color: #ef4444;
+  color: #ffffff;
+  border-bottom: 4px solid #b91c1c;
+  font-family: var(--font-anton), Anton, sans-serif;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-red:active {
+  transform: translateY(2px);
+  border-bottom-width: 1px;
+}
+
+.btn-3d-green {
+  background-color: #10b981;
+  color: #020617;
+  border-bottom: 4px solid #047857;
+  font-family: var(--font-anton), Anton, sans-serif;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-green:active {
+  transform: translateY(2px);
+  border-bottom-width: 1px;
+}
+
+.btn-3d-slate {
+  background-color: #0f172a;
+  color: #f8fafc;
+  border: 2px solid #334155;
+  border-bottom: 4px solid #1e293b;
+  font-family: var(--font-anton), Anton, sans-serif;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-slate:active {
+  transform: translateY(2px);
+  border-bottom-width: 2px;
+}
+
+.btn-3d-amber {
+  background-color: #0f172a;
+  color: #eab308;
+  border: 2px solid #ca8a04;
+  border-bottom: 4px solid #854d0e;
+  font-family: var(--font-anton), Anton, sans-serif;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-amber:active {
+  transform: translateY(2px);
+  border-bottom-width: 2px;
+}
+
+/* Card Console & Fenda Inset */
+.console-card {
+  background-color: #0f172a;
+  border: 2px solid #334155;
+  border-radius: 1.25rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+}
+
+.input-fenda {
+  background-color: #020617;
+  border: 2px solid #1e293b;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+.input-fenda:focus {
+  border-color: #06b6d4;
+  outline: none;
+}
+
+/* Listras de Perigo Among Us */
+.hazard-stripes {
+  background: repeating-linear-gradient(
+    -45deg,
+    #eab308,
+    #eab308 12px,
+    #020617 12px,
+    #020617 24px
+  );
+}
+
+/* Scrollbar Customizada */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(17, 24, 39, 0.5);
+  background: rgba(2, 6, 23, 0.7);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(75, 85, 99, 0.5);
-  border-radius: 3px;
+  background: #334155;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #06b6d4;
 }

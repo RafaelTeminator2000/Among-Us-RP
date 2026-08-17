@@ -41,5 +41,6 @@ export const DEFAULT_DEMO_MAP: ScratchMapPlan = {
     { id: "node-3", type: "MANIFOLDS", x: 27.5, y: 72.5, room_name: "Reator / Coletores" },
     { id: "node-4", type: "CARD_SWIPE", x: 20, y: 20, room_name: "Recepção / Entrada" },
     { id: "node-5", type: "DISTRIBUTOR", x: 72.5, y: 72.5, room_name: "Gerador / Distribuidor" },
+    { id: "node-6", type: "KEYPAD", x: 20, y: 72.5, room_name: "Oxigênio / O2" },
   ],
 };

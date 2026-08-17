@@ -10,7 +10,7 @@ interface DarknessOverlayProps {
 
 export function DarknessOverlay({
   onOpenGenerator,
-  generatorLocationName = 'Gerador Principal (POINT_01)',
+  generatorLocationName = 'Quadro de Luz (POINT_01)',
 }: DarknessOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -19,7 +19,6 @@ export function DarknessOverlay({
     const container = containerRef.current;
     if (!container) return;
 
-    // Inicializar no centro da viewport
     const setLightPosition = (clientX: number, clientY: number) => {
       const rect = container.getBoundingClientRect();
       const x = clientX - rect.left;
@@ -28,7 +27,6 @@ export function DarknessOverlay({
       container.style.setProperty('--light-y', `${y}px`);
     };
 
-    // Centralizar inicialmente
     setLightPosition(window.innerWidth / 2, window.innerHeight / 2);
 
     const handlePointerMove = (e: PointerEvent) => {
@@ -66,7 +64,7 @@ export function DarknessOverlay({
         } as React.CSSProperties
       }
     >
-      {/* Halo de brilho da lanterna em volta da posição do toque */}
+      {/* Halo de brilho da lanterna */}
       <div
         className="pointer-events-none absolute w-[190px] h-[190px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-500/20 bg-cyan-400/5 shadow-[0_0_50px_rgba(6,182,212,0.15)] transition-transform duration-75"
         style={{
@@ -75,7 +73,7 @@ export function DarknessOverlay({
         }}
       />
 
-      {/* Dica visual de lanterna (some após primeiro movimento) */}
+      {/* Dica visual de lanterna */}
       {!hasInteracted && (
         <div
           className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1.5 text-cyan-400 animate-bounce"
@@ -96,7 +94,10 @@ export function DarknessOverlay({
         <div className="flex items-center gap-2.5 bg-red-950/90 border border-red-500/60 text-red-300 px-4 py-2.5 rounded-full shadow-[0_0_30px_rgba(239,68,68,0.4)] backdrop-blur-md animate-pulse">
           <Zap className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-bounce" />
           <div className="flex flex-col">
-            <span className="text-xs font-black tracking-widest uppercase text-red-200">
+            <span
+              style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
+              className="text-xs uppercase tracking-widest text-red-200"
+            >
               ⚡ ENERGIA APAGADA!
             </span>
             <span className="text-[10px] text-red-300/80 font-mono">
@@ -107,7 +108,7 @@ export function DarknessOverlay({
         </div>
       </div>
 
-      {/* Rodapé fixo com instruções e botão de resolução do gerador */}
+      {/* Rodapé fixo com instruções e botão 3D */}
       <div className="absolute bottom-6 left-0 right-0 z-50 px-4 flex flex-col items-center gap-3 pointer-events-auto">
         <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-700/80 text-slate-300 px-3.5 py-1.5 rounded-full text-xs font-medium backdrop-blur-md shadow-lg">
           <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
@@ -116,11 +117,12 @@ export function DarknessOverlay({
 
         {onOpenGenerator && (
           <button
+            type="button"
             onClick={onOpenGenerator}
-            className="w-full max-w-xs flex items-center justify-center gap-2.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 active:scale-95 text-slate-950 font-bold text-sm py-3.5 px-6 rounded-2xl shadow-[0_0_25px_rgba(245,158,11,0.4)] transition-all"
+            className="w-full max-w-xs h-[52px] rounded-2xl btn-3d-amber flex items-center justify-center gap-2 text-sm font-black uppercase cursor-pointer"
           >
             <QrCode className="w-5 h-5 stroke-[2.5]" />
-            <span>Escanear Disjuntor / Gerador</span>
+            <span>ESCANEAR DISJUNTOR / LUZES</span>
           </button>
         )}
       </div>
