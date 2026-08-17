@@ -4,6 +4,7 @@
 /node_modules
 /supabase
 /.pnp
+/ref
 .pnp.*
 .yarn/*
 !.yarn/patches
