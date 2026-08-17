@@ -19,6 +19,12 @@ import { SwipeCardMinigame } from '@/components/minigames/SwipeCardMinigame';
 import { ManifoldsMinigame } from '@/components/minigames/ManifoldsMinigame';
 import { CalibrateDistributorMinigame } from '@/components/minigames/CalibrateDistributorMinigame';
 import { KeypadMinigame } from '@/components/minigames/KeypadMinigame';
+import { StartReactorMinigame } from '@/components/minigames/StartReactorMinigame';
+import { AsteroidsMinigame } from '@/components/minigames/AsteroidsMinigame';
+import { EmptyGarbageMinigame } from '@/components/minigames/EmptyGarbageMinigame';
+import { CleanO2FilterMinigame } from '@/components/minigames/CleanO2FilterMinigame';
+import { AlignEngineMinigame } from '@/components/minigames/AlignEngineMinigame';
+import { RefuelEngineMinigame } from '@/components/minigames/RefuelEngineMinigame';
 import { EmergencyButtonModal } from '@/components/minigames/EmergencyButtonModal';
 import { DarknessOverlay } from '@/components/game/DarknessOverlay';
 import { BreakerMinigame } from '@/components/minigames/BreakerMinigame';
@@ -71,7 +77,20 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [showReportScanner, setShowReportScanner] = useState<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<TaskNode | null>(null);
   const [activeMinigame, setActiveMinigame] = useState<
-    'qr' | 'wires' | 'card_swipe' | 'manifolds' | 'distributor' | 'keypad' | 'emergency_button' | null
+    | 'qr'
+    | 'wires'
+    | 'card_swipe'
+    | 'manifolds'
+    | 'distributor'
+    | 'keypad'
+    | 'reactor'
+    | 'asteroids'
+    | 'garbage'
+    | 'clean_o2'
+    | 'align_engine'
+    | 'refuel'
+    | 'emergency_button'
+    | null
   >(null);
   const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
   const [rolesMap, setRolesMap] = useState<Record<string, 'CREWMATE' | 'IMPOSTOR'>>(() => {
@@ -1254,6 +1273,18 @@ export default function RoomPage({ params }: RoomPageProps) {
                       setActiveMinigame('keypad');
                     } else if (t === 'DISTRIBUTOR') {
                       setActiveMinigame('distributor');
+                    } else if (t === 'REACTOR') {
+                      setActiveMinigame('reactor');
+                    } else if (t === 'ASTEROIDS') {
+                      setActiveMinigame('asteroids');
+                    } else if (t === 'GARBAGE') {
+                      setActiveMinigame('garbage');
+                    } else if (t === 'CLEAN_O2') {
+                      setActiveMinigame('clean_o2');
+                    } else if (t === 'ALIGN_ENGINE') {
+                      setActiveMinigame('align_engine');
+                    } else if (t === 'REFUEL') {
+                      setActiveMinigame('refuel');
                     } else {
                       setActiveMinigame('wires');
                     }
@@ -1284,10 +1315,52 @@ export default function RoomPage({ params }: RoomPageProps) {
                       <span>CALIBRAR DISTRIBUIDOR</span>
                     </>
                   )}
+                  {selectedTask.type === 'REACTOR' && (
+                    <>
+                      <Zap className="w-4 h-4 text-cyan-400" />
+                      <span>INICIAR REATOR (SIMON SAYS)</span>
+                    </>
+                  )}
+                  {selectedTask.type === 'ASTEROIDS' && (
+                    <>
+                      <Zap className="w-4 h-4 text-emerald-400" />
+                      <span>DESTRUIR ASTEROIDES</span>
+                    </>
+                  )}
+                  {selectedTask.type === 'GARBAGE' && (
+                    <>
+                      <Zap className="w-4 h-4 text-amber-400" />
+                      <span>ESVAZIAR LIXO</span>
+                    </>
+                  )}
+                  {selectedTask.type === 'CLEAN_O2' && (
+                    <>
+                      <Zap className="w-4 h-4 text-cyan-400" />
+                      <span>LIMPAR FILTRO DE O2</span>
+                    </>
+                  )}
+                  {selectedTask.type === 'ALIGN_ENGINE' && (
+                    <>
+                      <Zap className="w-4 h-4 text-amber-400" />
+                      <span>ALINHAR MOTOR</span>
+                    </>
+                  )}
+                  {selectedTask.type === 'REFUEL' && (
+                    <>
+                      <Zap className="w-4 h-4 text-yellow-400" />
+                      <span>ABASTECER MOTOR</span>
+                    </>
+                  )}
                   {selectedTask.type !== 'CARD_SWIPE' &&
                     selectedTask.type !== 'MANIFOLDS' &&
                     selectedTask.type !== 'KEYPAD' &&
-                    selectedTask.type !== 'DISTRIBUTOR' && (
+                    selectedTask.type !== 'DISTRIBUTOR' &&
+                    selectedTask.type !== 'REACTOR' &&
+                    selectedTask.type !== 'ASTEROIDS' &&
+                    selectedTask.type !== 'GARBAGE' &&
+                    selectedTask.type !== 'CLEAN_O2' &&
+                    selectedTask.type !== 'ALIGN_ENGINE' &&
+                    selectedTask.type !== 'REFUEL' && (
                       <>
                         <Wrench className="w-4 h-4 text-amber-400" />
                         <span>REPARAR FIAÇÃO</span>
@@ -1387,6 +1460,84 @@ export default function RoomPage({ params }: RoomPageProps) {
             handleCompleteTask(selectedTask?.id || 'keypad-task');
           }}
           onClose={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Iniciar Reator (Simon Says) */}
+      {activeMinigame === 'reactor' && (
+        <StartReactorMinigame
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'reactor-task');
+          }}
+          onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Destruir Asteroides */}
+      {activeMinigame === 'asteroids' && (
+        <AsteroidsMinigame
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'asteroids-task');
+          }}
+          onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Esvaziar Lixo */}
+      {activeMinigame === 'garbage' && (
+        <EmptyGarbageMinigame
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'garbage-task');
+          }}
+          onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Limpar Filtro de O2 */}
+      {activeMinigame === 'clean_o2' && (
+        <CleanO2FilterMinigame
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'clean-o2-task');
+          }}
+          onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Alinhar Motor */}
+      {activeMinigame === 'align_engine' && (
+        <AlignEngineMinigame
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'align-engine-task');
+          }}
+          onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Abastecer Combustível */}
+      {activeMinigame === 'refuel' && (
+        <RefuelEngineMinigame
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'refuel-task');
+          }}
+          onCancel={() => {
             setActiveMinigame(null);
             setSelectedTask(null);
           }}
@@ -1669,6 +1820,78 @@ export default function RoomPage({ params }: RoomPageProps) {
                 >
                   <span>⚡</span>
                   <span className="truncate">Disjuntores (5 Luzes)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('reactor');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🧠</span>
+                  <span className="truncate">Reator (Simon Says)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('asteroids');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🚀</span>
+                  <span className="truncate">Asteroides (Armas)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('garbage');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🗑️</span>
+                  <span className="truncate">Esvaziar Lixo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('clean_o2');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🍃</span>
+                  <span className="truncate">Limpar Filtro O2</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('align_engine');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🎯</span>
+                  <span className="truncate">Alinhar Motor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestDrawer(false);
+                    setActiveMinigame('refuel');
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-yellow-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>⛽</span>
+                  <span className="truncate">Abastecer Motor</span>
                 </button>
               </div>
 

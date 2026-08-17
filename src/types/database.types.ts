@@ -16,6 +16,12 @@ export type TaskType =
   | "CARD_SWIPE"
   | "MANIFOLDS"
   | "DISTRIBUTOR"
+  | "REACTOR"
+  | "ASTEROIDS"
+  | "GARBAGE"
+  | "CLEAN_O2"
+  | "ALIGN_ENGINE"
+  | "REFUEL"
   | "EMERGENCY_BUTTON";
 
 export interface RoomRules {

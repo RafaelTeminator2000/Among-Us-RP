@@ -42,5 +42,11 @@ export const DEFAULT_DEMO_MAP: ScratchMapPlan = {
     { id: "node-4", type: "CARD_SWIPE", x: 20, y: 20, room_name: "Recepção / Entrada" },
     { id: "node-5", type: "DISTRIBUTOR", x: 72.5, y: 72.5, room_name: "Gerador / Distribuidor" },
     { id: "node-6", type: "KEYPAD", x: 20, y: 72.5, room_name: "Oxigênio / O2" },
+    { id: "node-7", type: "REACTOR", x: 15, y: 80, room_name: "Reator / Iniciar Reator" },
+    { id: "node-8", type: "ASTEROIDS", x: 80, y: 20, room_name: "Armas / Asteroides" },
+    { id: "node-9", type: "GARBAGE", x: 75, y: 80, room_name: "Armazenamento / Esvaziar Lixo" },
+    { id: "node-10", type: "CLEAN_O2", x: 30, y: 65, room_name: "Oxigênio / Limpar Filtro" },
+    { id: "node-11", type: "ALIGN_ENGINE", x: 65, y: 15, room_name: "Motores / Alinhamento" },
+    { id: "node-12", type: "REFUEL", x: 85, y: 65, room_name: "Motores / Abastecimento" },
   ],
 };
