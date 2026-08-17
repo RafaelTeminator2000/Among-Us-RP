@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 
@@ -63,6 +63,7 @@ export interface UseRealtimeGameProps {
   onSkipDiscussion?: () => void;
   onVoteCast?: (payload: any) => void;
   onVotingFinished?: (payload: any) => void;
+  onCrewmateVictory?: (payload: { impostorName?: string; timestamp?: number }) => void;
   onRoomStatusChanged?: (newStatus: string) => void;
   onPlayersPresenceChanged?: (players: PresencePlayer[]) => void;
 }
@@ -84,6 +85,7 @@ export function useRealtimeGame({
   onSkipDiscussion,
   onVoteCast,
   onVotingFinished,
+  onCrewmateVictory,
   onRoomStatusChanged,
   onPlayersPresenceChanged,
 }: UseRealtimeGameProps) {
@@ -93,7 +95,7 @@ export function useRealtimeGame({
 
   const channelRef = useRef<RealtimeChannel | null>(null);
   const pingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   // Manter refs atualizadas de callbacks e props do jogador para evitar re-subscriptions infinitos
   const callbacksRef = useRef({
@@ -105,24 +107,12 @@ export function useRealtimeGame({
     onSkipDiscussion,
     onVoteCast,
     onVotingFinished,
+    onCrewmateVictory,
     onRoomStatusChanged,
     onPlayersPresenceChanged,
   });
 
-  useEffect(() => {
-    callbacksRef.current = {
-      onGameStarted,
-      onPlayerKilled,
-      onEmergencyMeeting,
-      onSabotageTriggered,
-      onSabotageFixed,
-      onSkipDiscussion,
-      onVoteCast,
-      onVotingFinished,
-      onRoomStatusChanged,
-      onPlayersPresenceChanged,
-    };
-  }, [
+  callbacksRef.current = {
     onGameStarted,
     onPlayerKilled,
     onEmergencyMeeting,
@@ -131,15 +121,15 @@ export function useRealtimeGame({
     onSkipDiscussion,
     onVoteCast,
     onVotingFinished,
+    onCrewmateVictory,
     onRoomStatusChanged,
     onPlayersPresenceChanged,
-  ]);
-
+  };
 
   const playerRef = useRef({ playerId, playerName, playerColor, playerRole, isAlive });
-  useEffect(() => {
-    playerRef.current = { playerId, playerName, playerColor, playerRole, isAlive };
+  playerRef.current = { playerId, playerName, playerColor, playerRole, isAlive };
 
+  useEffect(() => {
     // Se o canal já estiver conectado, enviar presença e anúncio com os dados mais recentes
     if (channelRef.current && connectionState === 'CONNECTED' && playerId) {
       const presencePayload = {
@@ -292,6 +282,22 @@ export function useRealtimeGame({
           const data = payload.payload as GameStartedPayload;
           if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
           if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data.status || 'PLAYING');
+        })
+        .on('broadcast', { event: 'GAME_RESTARTED' }, (payload) => {
+          const data = payload.payload as GameStartedPayload;
+          if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data.status || 'PLAYING');
+        })
+        .on('broadcast', { event: 'game_restarted' }, (payload) => {
+          const data = payload.payload as GameStartedPayload;
+          if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data.status || 'PLAYING');
+        })
+        .on('broadcast', { event: 'CREWMATE_VICTORY' }, (payload) => {
+          if (callbacksRef.current.onCrewmateVictory) callbacksRef.current.onCrewmateVictory(payload.payload);
+        })
+        .on('broadcast', { event: 'crewmate_victory' }, (payload) => {
+          if (callbacksRef.current.onCrewmateVictory) callbacksRef.current.onCrewmateVictory(payload.payload);
         })
         .on('broadcast', { event: 'player_killed' }, (payload) => {
           const data = payload.payload as PlayerKilledPayload;

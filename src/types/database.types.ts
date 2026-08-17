@@ -9,7 +9,14 @@ export type Json =
 export type RoomStatus = "LOBBY" | "PLAYING" | "EMERGENCY_MEETING" | "ENDED";
 export type PlayerRole = "CREWMATE" | "IMPOSTOR";
 export type PlayerStatus = "ALIVE" | "ELIMINATED";
-export type TaskType = "WIRE" | "KEYPAD" | "CARD_SWIPE" | "EMERGENCY_BUTTON";
+export type TaskType =
+  | "WIRE"
+  | "TASK_WIRE"
+  | "KEYPAD"
+  | "CARD_SWIPE"
+  | "MANIFOLDS"
+  | "DISTRIBUTOR"
+  | "EMERGENCY_BUTTON";
 
 export interface RoomRules {
   kill_cooldown: number;

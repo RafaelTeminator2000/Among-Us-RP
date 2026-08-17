@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Siren,
@@ -21,6 +21,7 @@ import {
   Users,
   Radio,
   FastForward,
+  Trophy,
 } from "lucide-react";
 
 export interface VotingPlayer {
@@ -39,12 +40,19 @@ interface VotingSessionProps {
   currentPlayerName?: string;
   reporterName: string;
   connectedPlayers?: VotingPlayer[];
+  rolesMap?: Record<string, 'CREWMATE' | 'IMPOSTOR'>;
   discussionTimeSeconds?: number;
   votingTimeSeconds?: number;
   confirmEjects?: boolean;
   isHost?: boolean;
   sendBroadcast?: (event: string, payload: any) => Promise<void>;
-  onVotingEnded?: (result?: { ejectedPlayerId?: string | null; wasTieOrSkipped?: boolean }) => void;
+  onVotingEnded?: (result?: {
+    ejectedPlayerId?: string | null;
+    ejectedPlayerName?: string | null;
+    isImpostor?: boolean;
+    ejectedRole?: string | null;
+    wasTieOrSkipped?: boolean;
+  }) => void;
 }
 
 // Fallback demo players apenas se nenhum jogador conectado for passado
@@ -61,6 +69,7 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
   currentPlayerName,
   reporterName,
   connectedPlayers,
+  rolesMap,
   discussionTimeSeconds = 30,
   votingTimeSeconds = 35,
   confirmEjects = true,
@@ -94,13 +103,16 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
     ejectedPlayer: VotingPlayer | null;
     isTie: boolean;
     isSkipped: boolean;
+    isImpostor?: boolean;
+    ejectedRole?: string | null;
     outcomeText: string;
     subText?: string;
   } | null>(null);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const topicKey = (roomCode || roomId).trim().toLowerCase();
   const channelRef = useRef<any>(null);
+  const hasCalledEndedRef = useRef(false);
 
   const currentPlayer = players.find((p) => p.id === currentPlayerId);
   const isEliminated = currentPlayer?.status === "ELIMINATED";
@@ -109,7 +121,37 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
   // 1. Sincronizar jogadores iniciais recebidos via props ou buscar no Supabase
   useEffect(() => {
     if (connectedPlayers && connectedPlayers.length > 0) {
-      setPlayers(connectedPlayers);
+      setPlayers((prev) => {
+        // Se a quantidade e os IDs / status / roles dos jogadores forem os mesmos, não atualiza para evitar loops
+        const isSame =
+          prev.length === connectedPlayers.length &&
+          prev.every((p, idx) => {
+            const cp = connectedPlayers[idx];
+            return (
+              cp &&
+              p.id === cp.id &&
+              p.player_name === cp.player_name &&
+              p.status === cp.status &&
+              p.role === (cp.role || rolesMap?.[cp.id] || p.role)
+            );
+          });
+
+        if (isSame) {
+          return prev;
+        }
+
+        return connectedPlayers.map((cp) => {
+          const existing = prev.find((p) => p.id === cp.id);
+          return {
+            id: cp.id,
+            player_name: cp.player_name,
+            color_hex: cp.color_hex,
+            status: cp.status,
+            role: cp.role || rolesMap?.[cp.id] || existing?.role,
+            has_voted: existing?.has_voted ?? false,
+          };
+        });
+      });
       return;
     }
 
@@ -141,7 +183,7 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
     };
 
     fetchRoomPlayers();
-  }, [connectedPlayers, roomId, supabase]);
+  }, [connectedPlayers, roomId]);
 
   // 2. Canal Realtime dedicado à votação (não interfere no canal principal game_flow)
   useEffect(() => {
@@ -259,6 +301,8 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
     let isSkipped = false;
     let outcomeText = "";
     let subText = "";
+    let isImpostor = false;
+    let ejectedRole: string | null = null;
 
     if (skipCount >= maxVotes && skipCount > 0) {
       isSkipped = true;
@@ -272,11 +316,28 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
     } else if (topSuspectId) {
       ejectedPlayer = players.find((p) => p.id === topSuspectId) || null;
       if (ejectedPlayer) {
+        // Recuperar papel de múltiplas fontes confiáveis
+        let storedRoles: Record<string, string> = {};
+        try {
+          if (typeof window !== 'undefined') {
+            const raw = localStorage.getItem(`room_roles_${roomId}`) || localStorage.getItem(`room_roles_${topicKey}`);
+            if (raw) storedRoles = JSON.parse(raw);
+          }
+        } catch {}
+
+        ejectedRole =
+          ejectedPlayer.role ||
+          rolesMap?.[ejectedPlayer.id] ||
+          storedRoles[ejectedPlayer.id] ||
+          (ejectedPlayer.player_name?.toLowerCase().includes("impostor") ? "IMPOSTOR" : "CREWMATE");
+
+        isImpostor = ejectedRole === "IMPOSTOR";
         outcomeText = `${ejectedPlayer.player_name} foi ejetado da nave.`;
-        if (confirmEjects && ejectedPlayer.role) {
-          subText = ejectedPlayer.role === "IMPOSTOR"
-            ? `${ejectedPlayer.player_name} era um Impostor.`
-            : `${ejectedPlayer.player_name} NÃO era um Impostor.`;
+
+        if (confirmEjects) {
+          subText = isImpostor
+            ? `🎉 ${ejectedPlayer.player_name} ERA O IMPOSTOR! VITÓRIA DOS TRIPULANTES!`
+            : `⚠️ ${ejectedPlayer.player_name} NÃO era um Impostor. A caçada continua!`;
         }
       } else {
         outcomeText = "Ninguém foi ejetado.";
@@ -288,10 +349,13 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
       ejectedPlayer,
       isTie: isTie && maxVotes > 0,
       isSkipped,
+      isImpostor,
+      ejectedRole,
       outcomeText,
       subText,
     };
 
+    hasCalledEndedRef.current = false;
     setVotingOutcome(outcome);
     setPhase("RESULTS");
 
@@ -346,10 +410,14 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
         setResultTimeLeft((prev) => (prev > 1 ? prev - 1 : 0));
       }, 1000);
       return () => clearInterval(timer);
-    } else if (resultTimeLeft === 0) {
+    } else if (resultTimeLeft === 0 && !hasCalledEndedRef.current) {
+      hasCalledEndedRef.current = true;
       if (onVotingEnded) {
         onVotingEnded({
           ejectedPlayerId: votingOutcome?.ejectedPlayer?.id || null,
+          ejectedPlayerName: votingOutcome?.ejectedPlayer?.player_name || null,
+          isImpostor: Boolean(votingOutcome?.isImpostor),
+          ejectedRole: votingOutcome?.ejectedRole || null,
           wasTieOrSkipped: !votingOutcome?.ejectedPlayer,
         });
       }
@@ -555,17 +623,48 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
             {votingOutcome.ejectedPlayer ? (
               <div className="space-y-3">
                 <div
-                  className="w-16 h-16 rounded-full mx-auto shadow-2xl border-2 border-white/30 flex items-center justify-center animate-pulse"
-                  style={{ backgroundColor: votingOutcome.ejectedPlayer.color_hex || "#ef4444" }}
+                  className={`w-16 h-16 rounded-full mx-auto shadow-2xl border-2 flex items-center justify-center animate-pulse ${
+                    votingOutcome.isImpostor
+                      ? 'bg-emerald-950/80 border-emerald-400 text-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.5)]'
+                      : 'border-white/30'
+                  }`}
+                  style={{
+                    backgroundColor: votingOutcome.isImpostor
+                      ? undefined
+                      : votingOutcome.ejectedPlayer.color_hex || '#ef4444',
+                  }}
                 >
-                  <Ghost className="w-8 h-8 text-white/80" />
+                  {votingOutcome.isImpostor ? (
+                    <Trophy className="w-8 h-8 text-emerald-400 animate-bounce" />
+                  ) : (
+                    <Ghost className="w-8 h-8 text-white/80" />
+                  )}
                 </div>
                 <div>
+                  <div className="inline-block mb-1.5">
+                    {votingOutcome.isImpostor ? (
+                      <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)] inline-flex items-center gap-1 animate-pulse">
+                        <Sparkles className="w-3 h-3 text-emerald-400" />
+                        <span>VITÓRIA DOS TRIPULANTES</span>
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/60 inline-flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 text-amber-400" />
+                        <span>TRIPULANTE INOCENTE</span>
+                      </span>
+                    )}
+                  </div>
                   <h3 className="text-lg font-black text-white uppercase">
                     {votingOutcome.outcomeText}
                   </h3>
                   {votingOutcome.subText && (
-                    <p className="text-xs font-semibold text-cyan-300 mt-1">
+                    <p
+                      className={`text-xs font-black mt-1 ${
+                        votingOutcome.isImpostor
+                          ? 'text-emerald-300 drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]'
+                          : 'text-amber-300'
+                      }`}
+                    >
                       {votingOutcome.subText}
                     </p>
                   )}
