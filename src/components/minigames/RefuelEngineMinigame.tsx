@@ -14,6 +14,8 @@ type RefuelStage =
   | 'FILL_CANISTER_2' // 3: Recarregar o galão no Depósito
   | 'POUR_LOWER_ENGINE'; // 4: Despejar no Motor Inferior
 
+const STAGE_DURATION_MS = 3800; // 3.8 segundos exatos de bombeamento por etapa (oficial do Among Us)
+
 export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
   onComplete,
   onCancel,
@@ -28,6 +30,7 @@ export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
   const isHoldingRef = useRef<boolean>(false);
   const isTransitioningRef = useRef<boolean>(false);
   const isCompletedRef = useRef<boolean>(false);
+  const lastTimestampRef = useRef<number | null>(null);
 
   useEffect(() => {
     isHoldingRef.current = isHolding;
@@ -79,16 +82,19 @@ export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
       setLevel(0);
       setIsStageDone(false);
       isTransitioningRef.current = false;
+      lastTimestampRef.current = null;
     } else if (currentStage === 'POUR_UPPER_ENGINE') {
       setStage('FILL_CANISTER_2');
       setLevel(0);
       setIsStageDone(false);
       isTransitioningRef.current = false;
+      lastTimestampRef.current = null;
     } else if (currentStage === 'FILL_CANISTER_2') {
       setStage('POUR_LOWER_ENGINE');
       setLevel(0);
       setIsStageDone(false);
       isTransitioningRef.current = false;
+      lastTimestampRef.current = null;
     } else if (currentStage === 'POUR_LOWER_ENGINE') {
       isCompletedRef.current = true;
       setIsCompleted(true);
@@ -96,14 +102,19 @@ export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
     }
   }, [onComplete]);
 
-  // Loop contínuo de bombeamento
+  // Loop contínuo de bombeamento (3.8 segundos por etapa)
   useEffect(() => {
     if (!isHolding || isCompleted || isTransitioningRef.current) return;
 
     let lastSound = 0;
+    lastTimestampRef.current = null;
 
     const loop = (timestamp: number) => {
       if (!isHoldingRef.current || isCompletedRef.current || isTransitioningRef.current) return;
+
+      if (!lastTimestampRef.current) lastTimestampRef.current = timestamp;
+      const deltaMs = Math.min(50, timestamp - lastTimestampRef.current);
+      lastTimestampRef.current = timestamp;
 
       if (timestamp - lastSound > 220) {
         playPumpSound();
@@ -115,7 +126,8 @@ export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
       }
 
       setLevel((prev) => {
-        const next = prev + 0.85;
+        const increment = (deltaMs / STAGE_DURATION_MS) * 100;
+        const next = prev + increment;
 
         if (next >= 100) {
           isTransitioningRef.current = true;
@@ -162,6 +174,7 @@ export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
   const handlePointerUp = () => {
     if (isCompleted || isTransitioningRef.current) return;
     setIsHolding(false);
+    lastTimestampRef.current = null;
   };
 
   const isFillCanister = stage === 'FILL_CANISTER_1' || stage === 'FILL_CANISTER_2';
