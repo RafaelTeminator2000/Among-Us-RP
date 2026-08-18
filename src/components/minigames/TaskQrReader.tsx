@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { Html5Qrcode } from "html5-qrcode";
 import { QrCode, Camera, AlertCircle, CheckCircle2, X, Keyboard } from "lucide-react";
 
 interface TaskQrReaderProps {
@@ -21,8 +21,9 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
   expectedTaskTitle,
   expectedTaskLocation,
 }) => {
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const qrCodeInstanceRef = useRef<Html5Qrcode | null>(null);
 
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState<string>("");
   const [showManualInput, setShowManualInput] = useState<boolean>(false);
@@ -74,46 +75,60 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
     }, 1000);
   };
 
-  // Inicializa o Html5QrcodeScanner (compatível universalmente com iOS, Android e Desktop)
+  // Inicializa o Html5Qrcode direto no elemento container sem controles legados
   useEffect(() => {
     if (showManualInput || isScanned) return;
 
-    let isMounted = true;
+    let isStopped = false;
+    const elementId = "task-qr-reader-box";
+    const html5QrCode = new Html5Qrcode(elementId);
+    qrCodeInstanceRef.current = html5QrCode;
 
-    // Instancia o leitor universal HTML5
-    const scanner = new Html5QrcodeScanner(
-      "task-qr-reader-box",
-      {
-        fps: 10,
-        qrbox: { width: 240, height: 240 },
-        aspectRatio: 1.0,
-      },
-      /* verbose= */ false
-    );
+    html5QrCode
+      .start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 240, height: 240 },
+          aspectRatio: 1.0,
+        },
+        (decodedText) => {
+          if (isStopped) return;
+          isStopped = true;
 
-    scannerRef.current = scanner;
-
-    scanner.render(
-      (decodedText) => {
-        if (!isMounted) return;
-        if (scannerRef.current) {
-          scannerRef.current.clear().catch(() => {});
-          scannerRef.current = null;
+          if (html5QrCode.isScanning) {
+            html5QrCode
+              .stop()
+              .then(() => {
+                triggerSuccess(decodedText);
+              })
+              .catch(() => {
+                triggerSuccess(decodedText);
+              });
+          } else {
+            triggerSuccess(decodedText);
+          }
+        },
+        () => {
+          // Frame sem QR Code detectado, ignorar
         }
-        triggerSuccess(decodedText);
-      },
-      () => {
-        // Ignora erros de captura de quadros individuais
-      }
-    );
+      )
+      .then(() => {
+        setHasPermission(true);
+        setErrorMessage(null);
+      })
+      .catch((err) => {
+        console.error("Erro ao iniciar câmera com Html5Qrcode:", err);
+        setHasPermission(false);
+        setErrorMessage("Não foi possível acessar a câmera do dispositivo.");
+      });
 
     return () => {
-      isMounted = false;
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch((err) => {
-          console.error("Falha ao desmontar scanner de task:", err);
-        });
-        scannerRef.current = null;
+      isStopped = true;
+      if (qrCodeInstanceRef.current && qrCodeInstanceRef.current.isScanning) {
+        qrCodeInstanceRef.current
+          .stop()
+          .catch((err) => console.error("Erro ao parar câmera:", err));
       }
     };
   }, [showManualInput, isScanned]);
@@ -125,7 +140,7 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
   };
 
   return (
-    <div className="relative w-full max-w-md mx-auto h-[85vh] max-h-[700px] bg-slate-950 text-white rounded-3xl overflow-hidden border-2 border-slate-700 shadow-2xl flex flex-col justify-between p-4 select-none">
+    <div className="relative w-full max-w-md mx-auto h-[85vh] max-h-[700px] bg-slate-950 text-white rounded-3xl overflow-hidden border-2 border-slate-700 shadow-2xl flex flex-col justify-between p-4 select-none font-sans">
       {/* Header */}
       <div className="flex items-center justify-between z-20 bg-slate-900/80 backdrop-blur-md px-4 py-3 rounded-2xl border border-slate-800">
         <div className="flex items-center gap-2">
@@ -154,14 +169,14 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
 
       {/* Main Viewport */}
       <div className="relative flex-1 my-4 rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center">
-        {/* Container do Html5QrcodeScanner em Canvas/Video nativo */}
+        {/* Container do Html5Qrcode */}
         <div
           id="task-qr-reader-box"
-          className="w-full h-full bg-slate-900 flex flex-col justify-center [&_video]:rounded-xl [&_video]:object-cover [&_video]:w-full [&_video]:h-full [&_img]:hidden [&_a]:hidden [&_button]:hidden [&_select]:hidden"
+          className="w-full h-full bg-slate-900 flex items-center justify-center overflow-hidden [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
         />
 
         {/* Retículo HUD Overlay */}
-        {!isScanned && !showManualInput && (
+        {!isScanned && !showManualInput && hasPermission !== false && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
             <div className="relative w-60 h-60 rounded-2xl border-2 border-cyan-400/60 shadow-[0_0_25px_rgba(34,211,238,0.2)] bg-cyan-950/10 flex flex-col justify-between p-2">
               <div className="flex justify-between">
@@ -177,8 +192,25 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
           </div>
         )}
 
-        {/* Mensagem de Erro */}
-        {errorMessage && (
+        {/* Estado sem Permissão / Erro */}
+        {hasPermission === false && !showManualInput && (
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center z-30">
+            <AlertCircle className="w-12 h-12 text-amber-400 mb-3 animate-bounce" />
+            <h3 className="text-lg font-bold text-amber-400">Câmera Indisponível</h3>
+            <p className="text-xs text-slate-400 mt-1 mb-4">
+              {errorMessage || "Não foi possível acessar a câmera do dispositivo."}
+            </p>
+            <button
+              onClick={() => setShowManualInput(true)}
+              className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl text-xs uppercase transition-all shadow-lg shadow-cyan-500/20 cursor-pointer"
+            >
+              Inserir Código Manualmente
+            </button>
+          </div>
+        )}
+
+        {/* Mensagem de Erro de Token */}
+        {errorMessage && hasPermission !== false && (
           <div className="absolute bottom-4 left-4 right-4 bg-red-950/90 border border-red-500/60 text-red-200 text-xs p-3 rounded-2xl text-center flex items-center justify-center gap-2 z-30 shadow-lg animate-in fade-in">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
             <span>{errorMessage}</span>
@@ -209,7 +241,7 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
             </div>
             <button
               onClick={() => setShowManualInput(false)}
-              className="p-1 text-slate-400 hover:text-white"
+              className="p-1 text-slate-400 hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
