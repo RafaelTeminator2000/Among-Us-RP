@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
-import { QrCode, Camera, Flashlight, AlertCircle, CheckCircle2, X, Keyboard } from "lucide-react";
+import { QrCode, Camera, AlertCircle, CheckCircle2, X, Keyboard } from "lucide-react";
 
 interface TaskQrReaderProps {
   expectedToken?: string;
@@ -21,10 +21,8 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
   expectedTaskTitle,
   expectedTaskLocation,
 }) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState<string>("");
   const [showManualInput, setShowManualInput] = useState<boolean>(false);
@@ -53,7 +51,6 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
   };
 
   const triggerSuccess = (code: string) => {
-    // Validação Phygital: Se expectedToken for especificado, verificar se o QR Code bate com o token do nó
     if (
       expectedToken &&
       code.trim().toUpperCase() !== expectedToken.trim().toUpperCase() &&
@@ -74,81 +71,52 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
     setTimeout(() => {
       if (onVerificationSuccess) onVerificationSuccess();
       if (onScanSuccess) onScanSuccess(code);
-    }, 1200);
+    }, 1000);
   };
 
-  // Start Camera stream
+  // Inicializa o Html5QrcodeScanner (compatível universalmente com iOS, Android e Desktop)
   useEffect(() => {
-    let stream: MediaStream | null = null;
-    let animId: number;
+    if (showManualInput || isScanned) return;
 
-    const startCamera = async () => {
-      try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          setHasPermission(false);
-          setErrorMessage("Câmera não suportada neste navegador.");
-          return;
+    let isMounted = true;
+
+    // Instancia o leitor universal HTML5
+    const scanner = new Html5QrcodeScanner(
+      "task-qr-reader-box",
+      {
+        fps: 10,
+        qrbox: { width: 240, height: 240 },
+        aspectRatio: 1.0,
+      },
+      /* verbose= */ false
+    );
+
+    scannerRef.current = scanner;
+
+    scanner.render(
+      (decodedText) => {
+        if (!isMounted) return;
+        if (scannerRef.current) {
+          scannerRef.current.clear().catch(() => {});
+          scannerRef.current = null;
         }
-
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-        });
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch((err) => {
-            if (err.name !== "AbortError") {
-              console.error("Erro ao reproduzir stream de vídeo:", err);
-            }
-          });
-          setHasPermission(true);
-        }
-
-        // Setup scan frame loop if BarcodeDetector is supported
-        if ("BarcodeDetector" in window) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const barcodeDetector = new (window as any).BarcodeDetector({
-            formats: ["qr_code"],
-          });
-
-          const scanFrame = async () => {
-            if (videoRef.current && videoRef.current.readyState === 4 && !isScanned) {
-              try {
-                const barcodes = await barcodeDetector.detect(videoRef.current);
-                if (barcodes.length > 0) {
-                  const codeValue = barcodes[0].rawValue;
-                  if (codeValue) {
-                    triggerSuccess(codeValue);
-                    return;
-                  }
-                }
-              } catch {
-                // Ignore detector errors on frames
-              }
-            }
-            if (!isScanned) {
-              animId = requestAnimationFrame(scanFrame);
-            }
-          };
-
-          animId = requestAnimationFrame(scanFrame);
-        }
-      } catch (err) {
-        console.error("Erro ao acessar câmera:", err);
-        setHasPermission(false);
-        setErrorMessage("Permissão de câmera negada ou indisponível.");
+        triggerSuccess(decodedText);
+      },
+      () => {
+        // Ignora erros de captura de quadros individuais
       }
-    };
-
-    startCamera();
+    );
 
     return () => {
-      if (animId) cancelAnimationFrame(animId);
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
+      isMounted = false;
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch((err) => {
+          console.error("Falha ao desmontar scanner de task:", err);
+        });
+        scannerRef.current = null;
       }
     };
-  }, []);
+  }, [showManualInput, isScanned]);
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,7 +137,7 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
               {expectedTaskTitle || "VALIDADOR PHY GITAL"}
             </h2>
             <p className="text-xs text-slate-400">
-              {expectedTaskLocation ? `Local: ${expectedTaskLocation}` : "Aproxime o QR Code da Tarefa"}
+              {expectedTaskLocation ? `Local: ${expectedTaskLocation}` : "Aproxime a câmera do QR Code"}
             </p>
           </div>
         </div>
@@ -177,7 +145,7 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
         {onCancel && (
           <button
             onClick={onCancel}
-            className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
+            className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -186,60 +154,40 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
 
       {/* Main Viewport */}
       <div className="relative flex-1 my-4 rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center">
-        {/* Camera Video Stream */}
-        <video
-          ref={videoRef}
-          className="absolute inset-0 w-full h-full object-cover"
-          muted
-          playsInline
+        {/* Container do Html5QrcodeScanner em Canvas/Video nativo */}
+        <div
+          id="task-qr-reader-box"
+          className="w-full h-full bg-slate-900 flex flex-col justify-center [&_video]:rounded-xl [&_video]:object-cover [&_video]:w-full [&_video]:h-full [&_img]:hidden [&_a]:hidden [&_button]:hidden [&_select]:hidden"
         />
-        <canvas ref={canvasRef} className="hidden" />
 
-        {/* Scan Reticle & Overlay */}
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-          {/* Dimmed background around frame */}
-          <div className="absolute inset-0 bg-slate-950/40" />
-
-          {/* Reticle Square */}
-          <div className="relative w-64 h-64 rounded-2xl border-2 border-cyan-400/60 shadow-[0_0_25px_rgba(34,211,238,0.2)] bg-cyan-950/10 backdrop-blur-[1px] flex flex-col justify-between p-2">
-            {/* HUD Corner Markers */}
-            <div className="flex justify-between">
-              <div className="w-5 h-5 border-t-4 border-l-4 border-cyan-400 rounded-tl" />
-              <div className="w-5 h-5 border-t-4 border-r-4 border-cyan-400 rounded-tr" />
-            </div>
-
-            {/* Laser Line */}
-            {!isScanned && (
+        {/* Retículo HUD Overlay */}
+        {!isScanned && !showManualInput && (
+          <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+            <div className="relative w-60 h-60 rounded-2xl border-2 border-cyan-400/60 shadow-[0_0_25px_rgba(34,211,238,0.2)] bg-cyan-950/10 flex flex-col justify-between p-2">
+              <div className="flex justify-between">
+                <div className="w-5 h-5 border-t-4 border-l-4 border-cyan-400 rounded-tl" />
+                <div className="w-5 h-5 border-t-4 border-r-4 border-cyan-400 rounded-tr" />
+              </div>
               <div className="w-full h-0.5 bg-cyan-400 shadow-[0_0_12px_#22d3ee] animate-[scan_2s_ease-in-out_infinite]" />
-            )}
-
-            <div className="flex justify-between">
-              <div className="w-5 h-5 border-b-4 border-l-4 border-cyan-400 rounded-bl" />
-              <div className="w-5 h-5 border-b-4 border-r-4 border-cyan-400 rounded-br" />
+              <div className="flex justify-between">
+                <div className="w-5 h-5 border-b-4 border-l-4 border-cyan-400 rounded-bl" />
+                <div className="w-5 h-5 border-b-4 border-r-4 border-cyan-400 rounded-br" />
+              </div>
             </div>
-          </div>
-        </div>
-
-        {/* Permission / Error State */}
-        {hasPermission === false && !showManualInput && (
-          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center z-30">
-            <AlertCircle className="w-12 h-12 text-amber-400 mb-3 animate-bounce" />
-            <h3 className="text-lg font-bold text-amber-400">Câmera Indisponível</h3>
-            <p className="text-xs text-slate-400 mt-1 mb-4">
-              {errorMessage || "Não foi possível acessar a câmera do dispositivo."}
-            </p>
-            <button
-              onClick={() => setShowManualInput(true)}
-              className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl text-xs uppercase transition-all shadow-lg shadow-cyan-500/20"
-            >
-              Inserir Código Manualmente
-            </button>
           </div>
         )}
 
-        {/* Success Overlay */}
+        {/* Mensagem de Erro */}
+        {errorMessage && (
+          <div className="absolute bottom-4 left-4 right-4 bg-red-950/90 border border-red-500/60 text-red-200 text-xs p-3 rounded-2xl text-center flex items-center justify-center gap-2 z-30 shadow-lg animate-in fade-in">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {/* Overlay de Sucesso ao Escanear */}
         {isScanned && (
-          <div className="absolute inset-0 bg-cyan-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-40 animate-in fade-in zoom-in duration-200">
+          <div className="absolute inset-0 bg-cyan-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-40 animate-in fade-in zoom-in duration-200">
             <CheckCircle2 className="w-16 h-16 text-emerald-400 mb-3 animate-bounce" />
             <h3 className="text-xl font-extrabold text-emerald-400 uppercase tracking-widest">
               QR Code Validado!
@@ -251,7 +199,7 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
         )}
       </div>
 
-      {/* Manual Input Modal/Drawer */}
+      {/* Entrada Manual Modal/Drawer */}
       {showManualInput && (
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-lg p-6 flex flex-col justify-center animate-in slide-in-from-bottom duration-200">
           <div className="flex items-center justify-between mb-4">
@@ -276,7 +224,7 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
                 type="text"
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
-                placeholder="Ex: TASK-ELEC-01"
+                placeholder="Ex: TASK_CARD_SWIPE ou REPORT_BODY"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-cyan-300 placeholder-slate-600 focus:outline-none focus:border-cyan-400 font-mono uppercase tracking-wider"
                 autoFocus
               />
@@ -286,14 +234,14 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
               <button
                 type="button"
                 onClick={() => setShowManualInput(false)}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-3 rounded-xl text-xs uppercase"
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-3 rounded-xl text-xs uppercase cursor-pointer"
               >
                 Voltar à Câmera
               </button>
               <button
                 type="submit"
                 disabled={!manualCode.trim()}
-                className="flex-1 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold py-3 rounded-xl text-xs uppercase shadow-lg shadow-cyan-500/20"
+                className="flex-1 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold py-3 rounded-xl text-xs uppercase shadow-lg shadow-cyan-500/20 cursor-pointer"
               >
                 Confirmar
               </button>
@@ -306,7 +254,7 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
       <div className="z-20 flex items-center justify-between gap-2 bg-slate-900/80 backdrop-blur-md p-2 rounded-2xl border border-slate-800">
         <button
           onClick={() => setShowManualInput(true)}
-          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl text-xs transition-colors"
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl text-xs transition-colors cursor-pointer"
         >
           <Keyboard className="w-4 h-4 text-cyan-400" />
           <span>Digitar Código</span>
