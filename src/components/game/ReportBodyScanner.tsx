@@ -45,9 +45,12 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
       const isValidUuid = (str?: string) =>
         typeof str === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
+      const cleanToken = scannedPlayerId.trim().toUpperCase();
       let deadPlayerName = `Jogador #${scannedPlayerId.substring(0, 4)}`;
 
-      if (isValidUuid(scannedPlayerId.trim())) {
+      if (cleanToken.includes("REPORT_BODY") || cleanToken === "REPORT" || cleanToken === "BODY_REPORT") {
+        deadPlayerName = "Corpo Encontrado (QR Físico)";
+      } else if (isValidUuid(scannedPlayerId.trim())) {
         const { data: targetPlayer, error: fetchError } = await supabase
           .from("room_players")
           .select("player_name, status")

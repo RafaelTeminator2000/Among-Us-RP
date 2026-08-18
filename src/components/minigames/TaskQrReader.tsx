@@ -54,7 +54,12 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
 
   const triggerSuccess = (code: string) => {
     // Validação Phygital: Se expectedToken for especificado, verificar se o QR Code bate com o token do nó
-    if (expectedToken && code.trim() !== expectedToken.trim()) {
+    if (
+      expectedToken &&
+      code.trim().toUpperCase() !== expectedToken.trim().toUpperCase() &&
+      !code.trim().toUpperCase().includes(expectedToken.trim().toUpperCase()) &&
+      !expectedToken.trim().toUpperCase().includes(code.trim().toUpperCase())
+    ) {
       setErrorMessage("QR Code incorreto! Você está no local errado para esta tarefa.");
       return;
     }

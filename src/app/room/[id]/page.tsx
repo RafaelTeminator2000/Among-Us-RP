@@ -1380,12 +1380,50 @@ export default function RoomPage({ params }: RoomPageProps) {
             <TaskQrReader
               expectedTaskTitle={selectedTask?.room_name}
               onScanSuccess={(code) => {
-                if (isLightsSabotaged || code.includes('LIGHTS') || code.includes('SABOTAGE') || code.includes('POINT_01')) {
+                const cleanCode = code.trim().toUpperCase();
+
+                if (cleanCode.includes('REPORT_BODY') || cleanCode === 'REPORT') {
+                  setActiveMinigame(null);
+                  setSelectedTask(null);
+                  handleBodyReported('Corpo Encontrado (QR Físico)');
+                } else if (cleanCode.includes('EMERGENCY_BUTTON')) {
+                  setActiveMinigame('emergency_button');
+                } else if (
+                  isLightsSabotaged ||
+                  cleanCode.includes('TASK_BREAKER') ||
+                  cleanCode.includes('LIGHTS') ||
+                  cleanCode.includes('SABOTAGE') ||
+                  cleanCode.includes('POINT_01')
+                ) {
                   setActiveMinigame(null);
                   setSelectedTask(null);
                   setShowBreakerGame(true);
+                } else if (cleanCode.includes('TASK_WIRE') || cleanCode === 'WIRE') {
+                  setActiveMinigame('wires');
+                } else if (cleanCode.includes('TASK_CARD_SWIPE') || cleanCode === 'CARD_SWIPE') {
+                  setActiveMinigame('card_swipe');
+                } else if (cleanCode.includes('TASK_MANIFOLDS') || cleanCode === 'MANIFOLDS') {
+                  setActiveMinigame('manifolds');
+                } else if (cleanCode.includes('TASK_DISTRIBUTOR') || cleanCode === 'DISTRIBUTOR') {
+                  setActiveMinigame('distributor');
+                } else if (cleanCode.includes('TASK_KEYPAD') || cleanCode === 'KEYPAD') {
+                  setActiveMinigame('keypad');
+                } else if (cleanCode.includes('TASK_REACTOR') || cleanCode === 'REACTOR') {
+                  setActiveMinigame('reactor');
+                } else if (cleanCode.includes('TASK_ASTEROIDS') || cleanCode === 'ASTEROIDS') {
+                  setActiveMinigame('asteroids');
+                } else if (cleanCode.includes('TASK_GARBAGE') || cleanCode === 'GARBAGE') {
+                  setActiveMinigame('garbage');
+                } else if (cleanCode.includes('TASK_CLEAN_O2') || cleanCode === 'CLEAN_O2') {
+                  setActiveMinigame('clean_o2');
+                } else if (cleanCode.includes('TASK_ALIGN_ENGINE') || cleanCode === 'ALIGN_ENGINE') {
+                  setActiveMinigame('align_engine');
+                } else if (cleanCode.includes('TASK_REFUEL') || cleanCode === 'REFUEL') {
+                  setActiveMinigame('refuel');
                 } else {
                   handleCompleteTask(selectedTask?.id || code);
+                  setActiveMinigame(null);
+                  setSelectedTask(null);
                 }
               }}
               onCancel={() => {
