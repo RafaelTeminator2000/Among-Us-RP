@@ -245,7 +245,7 @@ export default function QrPrintPage() {
                   value={card.token}
                   size={140}
                   level="H" // Correção alta de erros para iluminação física instável
-                  includeMargin={false}
+                  includeMargin={true}
                 />
               </div>
 

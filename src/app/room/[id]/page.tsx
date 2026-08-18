@@ -9,7 +9,7 @@ import { ReportBodyScanner } from '@/components/game/ReportBodyScanner';
 
 import { createClient } from '@/lib/supabase/client';
 import { generateUUID } from '@/lib/utils';
-import { GameMapHUD } from '@/components/map/GameMapHUD';
+import { PlayerTaskList } from '@/components/tasks/PlayerTaskList';
 import { ImpostorKillButton } from '@/components/game/ImpostorKillButton';
 import { VotingSessionScreen } from '@/components/game/VotingSessionScreen';
 import { EliminationScreen } from '@/components/minigames/EliminationScreen';
@@ -1134,23 +1134,13 @@ export default function RoomPage({ params }: RoomPageProps) {
         </div>
       )}
 
-      {/* Exibição do Mapa Interativo Phygital */}
-      <main className="my-auto space-y-4 z-10 py-4">
-        {mapData ? (
-          <GameMapHUD
-            mapData={mapData}
-            completedTasks={completedTasks}
-            onSelectTaskNode={(node: TaskNode) => {
-              setSelectedTask(node);
-            }}
-            isSabotaged={isSabotaged}
-          />
-        ) : (
-          <div className="text-center text-xs text-slate-500 py-12 bg-slate-900/50 rounded-3xl border border-slate-800">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-cyan-400" />
-            Carregando mapa tático da sala...
-          </div>
-        )}
+      {/* Lista Informativa de Tarefas do Jogador */}
+      <main className="my-auto space-y-4 z-10 py-3 flex-1 flex flex-col justify-start">
+        <PlayerTaskList
+          tasks={mapData?.nodes && mapData.nodes.length > 0 ? mapData.nodes : DEFAULT_DEMO_MAP.nodes}
+          completedTasks={completedTasks}
+          playerRole={playerRole}
+        />
       </main>
 
       {/* Barra Inferior de Ações RP (Zona do Polegar) */}
