@@ -867,6 +867,105 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
   };
 
+  // Validar se uma tarefa (por código QR, ID ou tipo) pertence às tarefas pessoais atribuídas ao jogador
+  const checkTaskAssignment = useCallback(
+    (codeOrType: string): { allowed: boolean; message: string; targetNode?: TaskNode } => {
+      if (playerRole === 'IMPOSTOR') {
+        return {
+          allowed: false,
+          message: '⚠️ Impostores não realizam tarefas reais!',
+        };
+      }
+
+      if (!assignedTasks || assignedTasks.length === 0) {
+        return {
+          allowed: false,
+          message: '⚠️ Nenhuma tarefa atribuída a você nesta partida!',
+        };
+      }
+
+      const inputUpper = codeOrType.toUpperCase().trim();
+
+      // 1. Match direto por ID exato do nó ou token_hash dentro de assignedTasks
+      const directMatch = assignedTasks.find(
+        (t) => t.id === codeOrType || (t.token_hash && t.token_hash.toUpperCase() === inputUpper)
+      );
+
+      if (directMatch) {
+        if (completedTasks.includes(directMatch.id)) {
+          return {
+            allowed: false,
+            message: '⚠️ Você já concluiu esta tarefa!',
+          };
+        }
+        return { allowed: true, message: '', targetNode: directMatch };
+      }
+
+      // 2. Mapear string do QR Code / input para o TaskType correspondente
+      let targetType = inputUpper
+        .replace('TASK_', '')
+        .replace('-TASK', '')
+        .replace('_TASK', '');
+
+      if (inputUpper.includes('WIRE')) targetType = 'WIRE';
+      else if (inputUpper.includes('CARD')) targetType = 'CARD_SWIPE';
+      else if (inputUpper.includes('MANIFOLD')) targetType = 'MANIFOLDS';
+      else if (inputUpper.includes('DISTRIBUTOR')) targetType = 'DISTRIBUTOR';
+      else if (inputUpper.includes('KEYPAD') || inputUpper.includes('OXYGEN')) targetType = 'KEYPAD';
+      else if (inputUpper.includes('REACTOR')) targetType = 'REACTOR';
+      else if (inputUpper.includes('ASTEROID')) targetType = 'ASTEROIDS';
+      else if (inputUpper.includes('GARBAGE') || inputUpper.includes('TRASH')) targetType = 'GARBAGE';
+      else if (inputUpper.includes('CLEAN_O2') || inputUpper.includes('FILTER')) targetType = 'CLEAN_O2';
+      else if (inputUpper.includes('ALIGN') || inputUpper.includes('ENGINE')) targetType = 'ALIGN_ENGINE';
+      else if (inputUpper.includes('REFUEL') || inputUpper.includes('FUEL')) targetType = 'REFUEL';
+
+      // 3. Verificar se existe algum nó em assignedTasks com esse tipo
+      const assignedNodesOfSameType = assignedTasks.filter((t) => {
+        const nodeType = t.type.toUpperCase();
+        return (
+          nodeType === targetType ||
+          (nodeType.length > 2 && targetType.length > 2 && (nodeType.includes(targetType) || targetType.includes(nodeType)))
+        );
+      });
+
+      if (assignedNodesOfSameType.length === 0) {
+        return {
+          allowed: false,
+          message: '⚠️ Esta tarefa não pertence às suas tarefas pessoais!',
+        };
+      }
+
+      // 4. Verificar se ainda há algum nó pendente (não concluído) desse tipo
+      const uncompletedNode = assignedNodesOfSameType.find((t) => !completedTasks.includes(t.id));
+
+      if (!uncompletedNode) {
+        return {
+          allowed: false,
+          message: '⚠️ Você já concluiu todas as suas tarefas deste tipo!',
+        };
+      }
+
+      return { allowed: true, message: '', targetNode: uncompletedNode };
+    },
+    [playerRole, assignedTasks, completedTasks]
+  );
+
+  const handleLaunchTestMinigame = (codeOrType: string, minigameKey: typeof activeMinigame) => {
+    setShowTestDrawer(false);
+    const validation = checkTaskAssignment(codeOrType);
+    if (!validation.allowed) {
+      setActiveMinigame(null);
+      setSelectedTask(null);
+      setTaskFeedback(validation.message);
+      setTimeout(() => setTaskFeedback(null), 3500);
+      return;
+    }
+    if (validation.targetNode) {
+      setSelectedTask(validation.targetNode);
+    }
+    setActiveMinigame(minigameKey);
+  };
+
   // Encontrar o nó de tarefa atribuído ao jogador (apenas tarefas da lista pessoal)
   const findAssignedTaskToComplete = useCallback(
     (rawTaskId: string, taskType?: string): TaskNode | null => {
@@ -1359,6 +1458,14 @@ export default function RoomPage({ params }: RoomPageProps) {
                 <button
                   type="button"
                   onClick={() => {
+                    const validation = checkTaskAssignment(selectedTask.id || selectedTask.type);
+                    if (!validation.allowed) {
+                      setSelectedTask(null);
+                      setTaskFeedback(validation.message);
+                      setTimeout(() => setTaskFeedback(null), 3500);
+                      return;
+                    }
+
                     const t = selectedTask.type?.toUpperCase();
                     if (t === 'CARD_SWIPE') {
                       setActiveMinigame('card_swipe');
@@ -1481,9 +1588,13 @@ export default function RoomPage({ params }: RoomPageProps) {
                   setActiveMinigame(null);
                   setSelectedTask(null);
                   handleBodyReported('Corpo Encontrado (QR Físico)');
-                } else if (cleanCode.includes('EMERGENCY_BUTTON')) {
+                  return;
+                }
+                if (cleanCode.includes('EMERGENCY_BUTTON')) {
                   setActiveMinigame('emergency_button');
-                } else if (
+                  return;
+                }
+                if (
                   isLightsSabotaged ||
                   cleanCode.includes('TASK_BREAKER') ||
                   cleanCode.includes('LIGHTS') ||
@@ -1493,7 +1604,25 @@ export default function RoomPage({ params }: RoomPageProps) {
                   setActiveMinigame(null);
                   setSelectedTask(null);
                   setShowBreakerGame(true);
-                } else if (cleanCode.includes('TASK_WIRE') || cleanCode === 'WIRE') {
+                  return;
+                }
+
+                // Validar se a tarefa do QR code escaneado pertence às tarefas pessoais do jogador
+                const validation = checkTaskAssignment(cleanCode);
+
+                if (!validation.allowed) {
+                  setActiveMinigame(null);
+                  setSelectedTask(null);
+                  setTaskFeedback(validation.message);
+                  setTimeout(() => setTaskFeedback(null), 3500);
+                  return;
+                }
+
+                if (validation.targetNode) {
+                  setSelectedTask(validation.targetNode);
+                }
+
+                if (cleanCode.includes('TASK_WIRE') || cleanCode === 'WIRE') {
                   setActiveMinigame('wires');
                 } else if (cleanCode.includes('TASK_CARD_SWIPE') || cleanCode === 'CARD_SWIPE') {
                   setActiveMinigame('card_swipe');
@@ -1515,6 +1644,24 @@ export default function RoomPage({ params }: RoomPageProps) {
                   setActiveMinigame('align_engine');
                 } else if (cleanCode.includes('TASK_REFUEL') || cleanCode === 'REFUEL') {
                   setActiveMinigame('refuel');
+                } else if (validation.targetNode) {
+                  const t = validation.targetNode.type;
+                  if (t === 'WIRE') setActiveMinigame('wires');
+                  else if (t === 'CARD_SWIPE') setActiveMinigame('card_swipe');
+                  else if (t === 'MANIFOLDS') setActiveMinigame('manifolds');
+                  else if (t === 'DISTRIBUTOR') setActiveMinigame('distributor');
+                  else if (t === 'KEYPAD') setActiveMinigame('keypad');
+                  else if (t === 'REACTOR') setActiveMinigame('reactor');
+                  else if (t === 'ASTEROIDS') setActiveMinigame('asteroids');
+                  else if (t === 'GARBAGE') setActiveMinigame('garbage');
+                  else if (t === 'CLEAN_O2') setActiveMinigame('clean_o2');
+                  else if (t === 'ALIGN_ENGINE') setActiveMinigame('align_engine');
+                  else if (t === 'REFUEL') setActiveMinigame('refuel');
+                  else {
+                    handleCompleteTask(validation.targetNode.id);
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                  }
                 } else {
                   handleCompleteTask(selectedTask?.id || code);
                   setActiveMinigame(null);
@@ -1885,10 +2032,7 @@ export default function RoomPage({ params }: RoomPageProps) {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('wires');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('WIRE', 'wires')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>🔌</span>
@@ -1897,10 +2041,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('card_swipe');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('CARD_SWIPE', 'card_swipe')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>💳</span>
@@ -1909,10 +2050,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('manifolds');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('MANIFOLDS', 'manifolds')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>🔢</span>
@@ -1921,10 +2059,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('distributor');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('DISTRIBUTOR', 'distributor')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>🎛️</span>
@@ -1933,10 +2068,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('keypad');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('KEYPAD', 'keypad')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>📟</span>
@@ -1957,10 +2089,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('reactor');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('REACTOR', 'reactor')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>🧠</span>
@@ -1969,10 +2098,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('asteroids');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('ASTEROIDS', 'asteroids')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>🚀</span>
@@ -1981,10 +2107,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('garbage');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('GARBAGE', 'garbage')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>🗑️</span>
@@ -1993,10 +2116,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('clean_o2');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('CLEAN_O2', 'clean_o2')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>🍃</span>
@@ -2005,10 +2125,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('align_engine');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('ALIGN_ENGINE', 'align_engine')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>🎯</span>
@@ -2017,10 +2134,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestDrawer(false);
-                    setActiveMinigame('refuel');
-                  }}
+                  onClick={() => handleLaunchTestMinigame('REFUEL', 'refuel')}
                   className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-yellow-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
                 >
                   <span>⛽</span>
