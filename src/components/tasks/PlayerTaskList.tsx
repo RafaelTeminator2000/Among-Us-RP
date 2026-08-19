@@ -75,7 +75,14 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
   return (
     <div className="w-full bg-[#0b1120]/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 font-mono select-none pointer-events-none">
       {displayTasks.map((task, index) => {
-        const isCompleted = completedTasks.includes(task.id);
+        const isCompleted =
+          completedTasks.includes(task.id) ||
+          completedTasks.some((id) => {
+            if (!id) return false;
+            const normId = String(id).toUpperCase().replace('TASK_', '').replace('-TASK', '').replace('_TASK', '');
+            const normType = String(task.type).toUpperCase();
+            return normId === normType || normId.includes(normType) || normType.includes(normId);
+          });
         const taskName = getSimpleTaskName(task.type, task.room_name);
 
         return (

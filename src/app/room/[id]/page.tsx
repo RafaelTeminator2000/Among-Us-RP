@@ -867,8 +867,48 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
   };
 
+  // Resolver o ID do nó de tarefa correto no mapa do jogador (ex: "node-5")
+  const resolveTaskId = useCallback((taskIdOrType: string, taskType?: string): string => {
+    if (selectedTask && selectedTask.id) return selectedTask.id;
+
+    const nodesToSearch = assignedTasks.length > 0
+      ? assignedTasks
+      : mapData?.nodes && mapData.nodes.length > 0
+      ? mapData.nodes
+      : DEFAULT_DEMO_MAP.nodes;
+
+    // 1. Match direto por ID exato do nó
+    const directMatch = nodesToSearch.find((t) => t.id === taskIdOrType);
+    if (directMatch) return directMatch.id;
+
+    // 2. Match por tipo de tarefa (ex: "DISTRIBUTOR", "WIRE", "distributor-task")
+    const searchType = (taskType || taskIdOrType)
+      .toUpperCase()
+      .replace('TASK_', '')
+      .replace('-TASK', '')
+      .replace('_TASK', '');
+
+    const uncompletedTypeMatch = nodesToSearch.find((t) => {
+      if (completedTasks.includes(t.id)) return false;
+      const nodeType = t.type.toUpperCase();
+      return nodeType === searchType || nodeType.includes(searchType) || searchType.includes(nodeType);
+    });
+
+    if (uncompletedTypeMatch) return uncompletedTypeMatch.id;
+
+    const anyTypeMatch = nodesToSearch.find((t) => {
+      const nodeType = t.type.toUpperCase();
+      return nodeType === searchType || nodeType.includes(searchType) || searchType.includes(nodeType);
+    });
+
+    if (anyTypeMatch) return anyTypeMatch.id;
+
+    return taskIdOrType;
+  }, [selectedTask, assignedTasks, mapData, completedTasks]);
+
   // Concluir uma tarefa e persistir com áudio
-  const handleCompleteTask = async (taskId: string) => {
+  const handleCompleteTask = async (rawTaskId: string, taskType?: string) => {
+    const taskId = resolveTaskId(rawTaskId, taskType);
     if (completedTasks.includes(taskId)) return;
 
     const newCompleted = [...completedTasks, taskId];
@@ -1467,7 +1507,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           <div className="w-full max-w-md">
             <WireMinigame
               onComplete={() => {
-                handleCompleteTask(selectedTask?.id || 'wire-task');
+                handleCompleteTask(selectedTask?.id || 'wire-task', 'WIRE');
               }}
               onCancel={() => {
                 setActiveMinigame(null);
@@ -1482,7 +1522,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'card_swipe' && (
         <SwipeCardMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'card-swipe-task');
+            handleCompleteTask(selectedTask?.id || 'card-swipe-task', 'CARD_SWIPE');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -1495,7 +1535,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'manifolds' && (
         <ManifoldsMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'manifolds-task');
+            handleCompleteTask(selectedTask?.id || 'manifolds-task', 'MANIFOLDS');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -1508,7 +1548,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'distributor' && (
         <CalibrateDistributorMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'distributor-task');
+            handleCompleteTask(selectedTask?.id || 'distributor-task', 'DISTRIBUTOR');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -1521,7 +1561,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'keypad' && (
         <KeypadMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'keypad-task');
+            handleCompleteTask(selectedTask?.id || 'keypad-task', 'KEYPAD');
           }}
           onClose={() => {
             setActiveMinigame(null);
@@ -1534,7 +1574,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'reactor' && (
         <StartReactorMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'reactor-task');
+            handleCompleteTask(selectedTask?.id || 'reactor-task', 'REACTOR');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -1547,7 +1587,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'asteroids' && (
         <AsteroidsMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'asteroids-task');
+            handleCompleteTask(selectedTask?.id || 'asteroids-task', 'ASTEROIDS');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -1560,7 +1600,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'garbage' && (
         <EmptyGarbageMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'garbage-task');
+            handleCompleteTask(selectedTask?.id || 'garbage-task', 'GARBAGE');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -1573,7 +1613,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'clean_o2' && (
         <CleanO2FilterMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'clean-o2-task');
+            handleCompleteTask(selectedTask?.id || 'clean-o2-task', 'CLEAN_O2');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -1586,7 +1626,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'align_engine' && (
         <AlignEngineMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'align-engine-task');
+            handleCompleteTask(selectedTask?.id || 'align-engine-task', 'ALIGN_ENGINE');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -1599,7 +1639,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'refuel' && (
         <RefuelEngineMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'refuel-task');
+            handleCompleteTask(selectedTask?.id || 'refuel-task', 'REFUEL');
           }}
           onCancel={() => {
             setActiveMinigame(null);
