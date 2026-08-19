@@ -21,6 +21,8 @@ import {
   Fuel,
   Skull,
   Radio,
+  FlaskConical,
+  UploadCloud,
   LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -147,6 +149,30 @@ const TACTICAL_CARDS: QrCardDefinition[] = [
     icon: Fuel,
     badge: 'TAREFA MOTOR',
   },
+  {
+    token: 'TASK_INSPECT_SAMPLE',
+    title: 'ANALISAR / ENVIAR AMOSTRA',
+    category: 'TASK',
+    description: 'Inicie a incubação de 60s na enfermaria e selecione o frasco anômalo.',
+    icon: FlaskConical,
+    badge: 'TAREFA MEDBAY',
+  },
+  {
+    token: 'TASK_DIVERT_POWER',
+    title: 'DIRECIONAR ENERGIA DA NAVE',
+    category: 'TASK',
+    description: 'Conecte o circuito de energia e ative o disjuntor da sala alvo.',
+    icon: Zap,
+    badge: 'TAREFA ELÉTRICA',
+  },
+  {
+    token: 'TASK_UPLOAD_DATA',
+    title: 'ENVIAR DADOS / TELEMETRIA',
+    category: 'TASK',
+    description: 'Transmita os pacotes de dados da estação para a Central da nave.',
+    icon: UploadCloud,
+    badge: 'TAREFA DADOS',
+  },
 ];
 
 export default function QrPrintPage() {
@@ -167,7 +193,7 @@ export default function QrPrintPage() {
           </Link>
           <h1 className="text-2xl font-black uppercase tracking-wider text-slate-100 flex items-center gap-2">
             <Shield className="w-6 h-6 text-cyan-400" />
-            <span>Kit de QR Codes Táticos Permanentes (14 Cartões)</span>
+            <span>Kit de QR Codes Táticos Permanentes ({TACTICAL_CARDS.length} Cartões)</span>
           </h1>
           <p className="text-xs text-slate-400 mt-1 max-w-xl">
             Imprima este kit completo contendo QR Codes específicos para cada minigame da nave e 1 cartão especial para Report de Corpo.

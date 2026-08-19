@@ -22,6 +22,9 @@ export type TaskType =
   | "CLEAN_O2"
   | "ALIGN_ENGINE"
   | "REFUEL"
+  | "INSPECT_SAMPLE"
+  | "DIVERT_POWER"
+  | "UPLOAD_DATA"
   | "EMERGENCY_BUTTON";
 
 export interface RoomRules {

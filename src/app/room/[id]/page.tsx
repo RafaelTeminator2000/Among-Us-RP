@@ -25,6 +25,9 @@ import { EmptyGarbageMinigame } from '@/components/minigames/EmptyGarbageMinigam
 import { CleanO2FilterMinigame } from '@/components/minigames/CleanO2FilterMinigame';
 import { AlignEngineMinigame } from '@/components/minigames/AlignEngineMinigame';
 import { RefuelEngineMinigame } from '@/components/minigames/RefuelEngineMinigame';
+import { InspectSampleMinigame } from '@/components/minigames/InspectSampleMinigame';
+import { DivertPowerMinigame } from '@/components/minigames/DivertPowerMinigame';
+import { UploadDataMinigame } from '@/components/minigames/UploadDataMinigame';
 import { EmergencyButtonModal } from '@/components/minigames/EmergencyButtonModal';
 import { DarknessOverlay } from '@/components/game/DarknessOverlay';
 import { BreakerMinigame } from '@/components/minigames/BreakerMinigame';
@@ -100,6 +103,9 @@ export default function RoomPage({ params }: RoomPageProps) {
     | 'clean_o2'
     | 'align_engine'
     | 'refuel'
+    | 'inspect_sample'
+    | 'divert_power'
+    | 'upload_data'
     | 'emergency_button'
     | null
   >(null);
@@ -870,13 +876,6 @@ export default function RoomPage({ params }: RoomPageProps) {
   // Validar se uma tarefa (por código QR, ID ou tipo) pertence às tarefas pessoais atribuídas ao jogador
   const checkTaskAssignment = useCallback(
     (codeOrType: string): { allowed: boolean; message: string; targetNode?: TaskNode } => {
-      if (playerRole === 'IMPOSTOR') {
-        return {
-          allowed: false,
-          message: '⚠️ Impostores não realizam tarefas reais!',
-        };
-      }
-
       if (!assignedTasks || assignedTasks.length === 0) {
         return {
           allowed: false,
@@ -895,7 +894,9 @@ export default function RoomPage({ params }: RoomPageProps) {
         if (completedTasks.includes(directMatch.id)) {
           return {
             allowed: false,
-            message: '⚠️ Você já concluiu esta tarefa!',
+            message: playerRole === 'IMPOSTOR'
+              ? '⚠️ Você já simulou esta tarefa falsa!'
+              : '⚠️ Você já concluiu esta tarefa!',
           };
         }
         return { allowed: true, message: '', targetNode: directMatch };
@@ -918,6 +919,9 @@ export default function RoomPage({ params }: RoomPageProps) {
       else if (inputUpper.includes('CLEAN_O2') || inputUpper.includes('FILTER')) targetType = 'CLEAN_O2';
       else if (inputUpper.includes('ALIGN') || inputUpper.includes('ENGINE')) targetType = 'ALIGN_ENGINE';
       else if (inputUpper.includes('REFUEL') || inputUpper.includes('FUEL')) targetType = 'REFUEL';
+      else if (inputUpper.includes('SAMPLE') || inputUpper.includes('INSPECT')) targetType = 'INSPECT_SAMPLE';
+      else if (inputUpper.includes('DIVERT') || inputUpper.includes('POWER')) targetType = 'DIVERT_POWER';
+      else if (inputUpper.includes('UPLOAD') || inputUpper.includes('DATA') || inputUpper.includes('DOWNLOAD')) targetType = 'UPLOAD_DATA';
 
       // 3. Verificar se existe algum nó em assignedTasks com esse tipo
       const assignedNodesOfSameType = assignedTasks.filter((t) => {
@@ -929,6 +933,15 @@ export default function RoomPage({ params }: RoomPageProps) {
       });
 
       if (assignedNodesOfSameType.length === 0) {
+        // Se for impostor, permitir interagir com tarefas do mapa para simular disfarce
+        if (playerRole === 'IMPOSTOR') {
+          const mapNodes = mapData?.nodes || DEFAULT_DEMO_MAP.nodes;
+          const mapNode = mapNodes.find((n) => n.type.toUpperCase() === targetType);
+          if (mapNode) {
+            return { allowed: true, message: '', targetNode: mapNode };
+          }
+        }
+
         return {
           allowed: false,
           message: '⚠️ Esta tarefa não pertence às suas tarefas pessoais!',
@@ -939,15 +952,26 @@ export default function RoomPage({ params }: RoomPageProps) {
       const uncompletedNode = assignedNodesOfSameType.find((t) => !completedTasks.includes(t.id));
 
       if (!uncompletedNode) {
+        // Se for impostor e já fez as de sua lista, permitir simular qualquer nó do mapa
+        if (playerRole === 'IMPOSTOR') {
+          const mapNodes = mapData?.nodes || DEFAULT_DEMO_MAP.nodes;
+          const mapNode = mapNodes.find((n) => n.type.toUpperCase() === targetType);
+          if (mapNode) {
+            return { allowed: true, message: '', targetNode: mapNode };
+          }
+        }
+
         return {
           allowed: false,
-          message: '⚠️ Você já concluiu todas as suas tarefas deste tipo!',
+          message: playerRole === 'IMPOSTOR'
+            ? '⚠️ Você já simulou todas as suas tarefas deste tipo!'
+            : '⚠️ Você já concluiu todas as suas tarefas deste tipo!',
         };
       }
 
       return { allowed: true, message: '', targetNode: uncompletedNode };
     },
-    [playerRole, assignedTasks, completedTasks]
+    [playerRole, assignedTasks, completedTasks, mapData]
   );
 
   const handleLaunchTestMinigame = (codeOrType: string, minigameKey: typeof activeMinigame) => {
@@ -988,6 +1012,8 @@ export default function RoomPage({ params }: RoomPageProps) {
         if ((isSameId || isSameType) && !completedTasks.includes(selectedTask.id)) {
           const assignedMatch = assignedTasks.find((t) => t.id === selectedTask.id);
           if (assignedMatch) return assignedMatch;
+          // Se for impostor com tarefa de mapa selecionada
+          if (playerRole === 'IMPOSTOR') return selectedTask;
         }
       }
 
@@ -1007,19 +1033,34 @@ export default function RoomPage({ params }: RoomPageProps) {
         );
       });
 
-      return typeMatch || null;
+      if (typeMatch) return typeMatch;
+
+      // 4. Se for impostor, permitir fallback para qualquer nó do mapa
+      if (playerRole === 'IMPOSTOR') {
+        const mapNodes = mapData?.nodes || DEFAULT_DEMO_MAP.nodes;
+        const mapMatch = mapNodes.find((n) => n.type.toUpperCase() === targetType || n.id === rawTaskId);
+        if (mapMatch) return mapMatch;
+      }
+
+      return null;
     },
-    [selectedTask, assignedTasks, completedTasks]
+    [selectedTask, assignedTasks, completedTasks, playerRole, mapData]
   );
 
-  // Concluir uma tarefa e persistir com áudio (apenas se pertencer às tarefas atribuídas ao jogador)
+  // Concluir uma tarefa e persistir com áudio
   const handleCompleteTask = async (rawTaskId: string, taskType?: string) => {
-    // Caso seja impostor, minigames são apenas simulações e não alteram a barra global
+    // Caso seja impostor, minigames são apenas simulações: atualiza a lista de tarefas local do impostor (risca da tela), mas não altera a barra global nem o banco
     if (playerRole === 'IMPOSTOR') {
+      const targetNode = findAssignedTaskToComplete(rawTaskId, taskType);
+      const taskId = targetNode?.id || rawTaskId;
+
+      if (!completedTasks.includes(taskId)) {
+        setCompletedTasks((prev) => [...prev, taskId]);
+      }
       setSelectedTask(null);
       setActiveMinigame(null);
       playTaskBeep();
-      setTaskFeedback('⚠️ Impostores não realizam tarefas reais!');
+      setTaskFeedback('✅ Tarefa falsa simulada! (Disfarce mantido)');
       setTimeout(() => setTaskFeedback(null), 3000);
       return;
     }
@@ -1487,6 +1528,12 @@ export default function RoomPage({ params }: RoomPageProps) {
                       setActiveMinigame('align_engine');
                     } else if (t === 'REFUEL') {
                       setActiveMinigame('refuel');
+                    } else if (t === 'INSPECT_SAMPLE') {
+                      setActiveMinigame('inspect_sample');
+                    } else if (t === 'DIVERT_POWER') {
+                      setActiveMinigame('divert_power');
+                    } else if (t === 'UPLOAD_DATA') {
+                      setActiveMinigame('upload_data');
                     } else {
                       setActiveMinigame('wires');
                     }
@@ -1553,6 +1600,24 @@ export default function RoomPage({ params }: RoomPageProps) {
                       <span>ABASTECER MOTOR</span>
                     </>
                   )}
+                  {selectedTask.type === 'INSPECT_SAMPLE' && (
+                    <>
+                      <Zap className="w-4 h-4 text-cyan-400" />
+                      <span>ANALISAR AMOSTRA</span>
+                    </>
+                  )}
+                  {selectedTask.type === 'DIVERT_POWER' && (
+                    <>
+                      <Zap className="w-4 h-4 text-amber-400" />
+                      <span>DIRECIONAR ENERGIA</span>
+                    </>
+                  )}
+                  {selectedTask.type === 'UPLOAD_DATA' && (
+                    <>
+                      <Zap className="w-4 h-4 text-cyan-400" />
+                      <span>ENVIAR DADOS</span>
+                    </>
+                  )}
                   {selectedTask.type !== 'CARD_SWIPE' &&
                     selectedTask.type !== 'MANIFOLDS' &&
                     selectedTask.type !== 'KEYPAD' &&
@@ -1562,7 +1627,10 @@ export default function RoomPage({ params }: RoomPageProps) {
                     selectedTask.type !== 'GARBAGE' &&
                     selectedTask.type !== 'CLEAN_O2' &&
                     selectedTask.type !== 'ALIGN_ENGINE' &&
-                    selectedTask.type !== 'REFUEL' && (
+                    selectedTask.type !== 'REFUEL' &&
+                    selectedTask.type !== 'INSPECT_SAMPLE' &&
+                    selectedTask.type !== 'DIVERT_POWER' &&
+                    selectedTask.type !== 'UPLOAD_DATA' && (
                       <>
                         <Wrench className="w-4 h-4 text-amber-400" />
                         <span>REPARAR FIAÇÃO</span>
@@ -1644,6 +1712,12 @@ export default function RoomPage({ params }: RoomPageProps) {
                   setActiveMinigame('align_engine');
                 } else if (cleanCode.includes('TASK_REFUEL') || cleanCode === 'REFUEL') {
                   setActiveMinigame('refuel');
+                } else if (cleanCode.includes('TASK_INSPECT_SAMPLE') || cleanCode === 'INSPECT_SAMPLE' || cleanCode.includes('SAMPLE')) {
+                  setActiveMinigame('inspect_sample');
+                } else if (cleanCode.includes('TASK_DIVERT_POWER') || cleanCode === 'DIVERT_POWER' || cleanCode.includes('DIVERT')) {
+                  setActiveMinigame('divert_power');
+                } else if (cleanCode.includes('TASK_UPLOAD_DATA') || cleanCode === 'UPLOAD_DATA' || cleanCode.includes('UPLOAD')) {
+                  setActiveMinigame('upload_data');
                 } else if (validation.targetNode) {
                   const t = validation.targetNode.type;
                   if (t === 'WIRE') setActiveMinigame('wires');
@@ -1657,6 +1731,9 @@ export default function RoomPage({ params }: RoomPageProps) {
                   else if (t === 'CLEAN_O2') setActiveMinigame('clean_o2');
                   else if (t === 'ALIGN_ENGINE') setActiveMinigame('align_engine');
                   else if (t === 'REFUEL') setActiveMinigame('refuel');
+                  else if (t === 'INSPECT_SAMPLE') setActiveMinigame('inspect_sample');
+                  else if (t === 'DIVERT_POWER') setActiveMinigame('divert_power');
+                  else if (t === 'UPLOAD_DATA') setActiveMinigame('upload_data');
                   else {
                     handleCompleteTask(validation.targetNode.id);
                     setActiveMinigame(null);
@@ -1816,6 +1893,51 @@ export default function RoomPage({ params }: RoomPageProps) {
         <RefuelEngineMinigame
           onComplete={() => {
             handleCompleteTask(selectedTask?.id || 'refuel-task', 'REFUEL');
+          }}
+          onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Enviar / Analisar Amostra (MedBay 60s) */}
+      {activeMinigame === 'inspect_sample' && (
+        <InspectSampleMinigame
+          roomId={roomId}
+          playerId={playerId}
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'sample-task', 'INSPECT_SAMPLE');
+          }}
+          onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Direcionar Energia (2 Etapas: Hotwire + Disjuntores) */}
+      {activeMinigame === 'divert_power' && (
+        <DivertPowerMinigame
+          rooms={mapData?.rooms}
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'divert-task', 'DIVERT_POWER');
+          }}
+          onCancel={() => {
+            setActiveMinigame(null);
+            setSelectedTask(null);
+          }}
+        />
+      )}
+
+      {/* Minigame: Enviar Dados (2 Etapas: Download na Sala -> Upload na Sede) */}
+      {activeMinigame === 'upload_data' && (
+        <UploadDataMinigame
+          roomName={selectedTask?.room_name || 'Armas'}
+          roomId={roomId}
+          playerId={playerId}
+          onComplete={() => {
+            handleCompleteTask(selectedTask?.id || 'upload-task', 'UPLOAD_DATA');
           }}
           onCancel={() => {
             setActiveMinigame(null);
@@ -2139,6 +2261,33 @@ export default function RoomPage({ params }: RoomPageProps) {
                 >
                   <span>⛽</span>
                   <span className="truncate">Abastecer Motor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleLaunchTestMinigame('INSPECT_SAMPLE', 'inspect_sample')}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>🧪</span>
+                  <span className="truncate">Amostra (60s)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleLaunchTestMinigame('DIVERT_POWER', 'divert_power')}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>⚡</span>
+                  <span className="truncate">Direcionar Energia</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleLaunchTestMinigame('UPLOAD_DATA', 'upload_data')}
+                  className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-400 text-left text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>📡</span>
+                  <span className="truncate">Enviar Dados</span>
                 </button>
               </div>
 
