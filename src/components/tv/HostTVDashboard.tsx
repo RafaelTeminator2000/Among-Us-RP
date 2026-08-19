@@ -301,10 +301,12 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     );
   }
 
-  // Recálculo dinâmico anti-deadlock de tarefas considerando APENAS jogadores vivos
-  const alivePlayers = players.filter((p) => p.is_alive);
-  const totalTasks = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * taskCount);
-  const completedTasks = alivePlayers.reduce((acc, curr) => acc + (curr.completed_tasks || 0), 0);
+  // Recálculo dinâmico anti-deadlock de tarefas considerando APENAS tripulantes vivos
+  const crewmates = players.filter((p) => p.role !== 'IMPOSTOR');
+  const aliveCrewmates = crewmates.filter((p) => p.is_alive);
+  const crewmateCount = aliveCrewmates.length > 0 ? aliveCrewmates.length : (crewmates.length > 0 ? crewmates.length : Math.max(1, players.length));
+  const totalTasks = Math.max(1, crewmateCount * taskCount);
+  const completedTasks = aliveCrewmates.reduce((acc, curr) => acc + (curr.completed_tasks || 0), 0);
   const taskProgress = Math.min(100, Math.round((completedTasks / totalTasks) * 100));
 
   return (

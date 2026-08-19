@@ -867,48 +867,66 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
   };
 
-  // Resolver o ID do nó de tarefa correto no mapa do jogador (ex: "node-5")
-  const resolveTaskId = useCallback((taskIdOrType: string, taskType?: string): string => {
-    if (selectedTask && selectedTask.id) return selectedTask.id;
+  // Encontrar o nó de tarefa atribuído ao jogador (apenas tarefas da lista pessoal)
+  const findAssignedTaskToComplete = useCallback(
+    (rawTaskId: string, taskType?: string): TaskNode | null => {
+      if (!assignedTasks || assignedTasks.length === 0) return null;
 
-    const nodesToSearch = assignedTasks.length > 0
-      ? assignedTasks
-      : mapData?.nodes && mapData.nodes.length > 0
-      ? mapData.nodes
-      : DEFAULT_DEMO_MAP.nodes;
+      // 1. Se o jogador selecionou explicitamente um nó no mapa que está nas suas tarefas atribuídas e pendente
+      if (selectedTask) {
+        const assignedMatch = assignedTasks.find(
+          (t) => t.id === selectedTask.id && !completedTasks.includes(t.id)
+        );
+        if (assignedMatch) return assignedMatch;
+      }
 
-    // 1. Match direto por ID exato do nó
-    const directMatch = nodesToSearch.find((t) => t.id === taskIdOrType);
-    if (directMatch) return directMatch.id;
+      // 2. Tentar match direto por ID exato do nó dentro de assignedTasks
+      const directMatch = assignedTasks.find(
+        (t) => t.id === rawTaskId && !completedTasks.includes(t.id)
+      );
+      if (directMatch) return directMatch;
 
-    // 2. Match por tipo de tarefa (ex: "DISTRIBUTOR", "WIRE", "distributor-task")
-    const searchType = (taskType || taskIdOrType)
-      .toUpperCase()
-      .replace('TASK_', '')
-      .replace('-TASK', '')
-      .replace('_TASK', '');
+      // 3. Tentar match por tipo de tarefa (ex: "DISTRIBUTOR", "WIRE") dentro de assignedTasks
+      const searchType = (taskType || rawTaskId)
+        .toUpperCase()
+        .replace('TASK_', '')
+        .replace('-TASK', '')
+        .replace('_TASK', '');
 
-    const uncompletedTypeMatch = nodesToSearch.find((t) => {
-      if (completedTasks.includes(t.id)) return false;
-      const nodeType = t.type.toUpperCase();
-      return nodeType === searchType || nodeType.includes(searchType) || searchType.includes(nodeType);
-    });
+      const typeMatch = assignedTasks.find((t) => {
+        if (completedTasks.includes(t.id)) return false;
+        const nodeType = t.type.toUpperCase();
+        return nodeType === searchType || nodeType.includes(searchType) || searchType.includes(nodeType);
+      });
 
-    if (uncompletedTypeMatch) return uncompletedTypeMatch.id;
+      return typeMatch || null;
+    },
+    [selectedTask, assignedTasks, completedTasks]
+  );
 
-    const anyTypeMatch = nodesToSearch.find((t) => {
-      const nodeType = t.type.toUpperCase();
-      return nodeType === searchType || nodeType.includes(searchType) || searchType.includes(nodeType);
-    });
-
-    if (anyTypeMatch) return anyTypeMatch.id;
-
-    return taskIdOrType;
-  }, [selectedTask, assignedTasks, mapData, completedTasks]);
-
-  // Concluir uma tarefa e persistir com áudio
+  // Concluir uma tarefa e persistir com áudio (apenas se pertencer às tarefas atribuídas ao jogador)
   const handleCompleteTask = async (rawTaskId: string, taskType?: string) => {
-    const taskId = resolveTaskId(rawTaskId, taskType);
+    // Caso seja impostor, minigames são apenas simulações e não alteram a barra global
+    if (playerRole === 'IMPOSTOR') {
+      setSelectedTask(null);
+      setActiveMinigame(null);
+      playTaskBeep();
+      setTaskFeedback('⚠️ Impostores não realizam tarefas reais!');
+      setTimeout(() => setTaskFeedback(null), 3000);
+      return;
+    }
+
+    const targetNode = findAssignedTaskToComplete(rawTaskId, taskType);
+
+    if (!targetNode) {
+      setSelectedTask(null);
+      setActiveMinigame(null);
+      setTaskFeedback('⚠️ Esta tarefa não pertence à sua lista de tarefas!');
+      setTimeout(() => setTaskFeedback(null), 3000);
+      return;
+    }
+
+    const taskId = targetNode.id;
     if (completedTasks.includes(taskId)) return;
 
     const newCompleted = [...completedTasks, taskId];
@@ -984,12 +1002,14 @@ export default function RoomPage({ params }: RoomPageProps) {
     return count;
   };
 
-  // Calcular progresso de tarefas da equipe
-  const alivePlayers = allPlayers.filter((p) => p.is_alive);
-  const totalTasksCount = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * taskCount);
+  // Calcular progresso de tarefas da equipe (apenas Tripulantes)
+  const crewmates = allPlayers.filter((p) => p.role !== 'IMPOSTOR');
+  const aliveCrewmates = crewmates.filter((p) => p.is_alive);
+  const crewmateCount = aliveCrewmates.length > 0 ? aliveCrewmates.length : (crewmates.length > 0 ? crewmates.length : Math.max(1, allPlayers.length));
+  const totalTasksCount = Math.max(1, crewmateCount * taskCount);
   const myCompletedCount = completedTasks.length;
-  const globalCompletedCount = allPlayers.length > 0
-    ? allPlayers.reduce((acc, curr) => acc + getPlayerTaskCount(curr, curr.id === playerId), 0)
+  const globalCompletedCount = crewmates.length > 0
+    ? crewmates.reduce((acc, curr) => acc + getPlayerTaskCount(curr, curr.id === playerId), 0)
     : myCompletedCount;
   const progressPercentage = Math.min(100, Math.round((globalCompletedCount / totalTasksCount) * 100));
 
