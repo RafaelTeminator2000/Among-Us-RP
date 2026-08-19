@@ -872,31 +872,40 @@ export default function RoomPage({ params }: RoomPageProps) {
     (rawTaskId: string, taskType?: string): TaskNode | null => {
       if (!assignedTasks || assignedTasks.length === 0) return null;
 
-      // 1. Se o jogador selecionou explicitamente um nó no mapa que está nas suas tarefas atribuídas e pendente
-      if (selectedTask) {
-        const assignedMatch = assignedTasks.find(
-          (t) => t.id === selectedTask.id && !completedTasks.includes(t.id)
-        );
-        if (assignedMatch) return assignedMatch;
-      }
-
-      // 2. Tentar match direto por ID exato do nó dentro de assignedTasks
-      const directMatch = assignedTasks.find(
-        (t) => t.id === rawTaskId && !completedTasks.includes(t.id)
-      );
-      if (directMatch) return directMatch;
-
-      // 3. Tentar match por tipo de tarefa (ex: "DISTRIBUTOR", "WIRE") dentro de assignedTasks
-      const searchType = (taskType || rawTaskId)
+      const targetType = (taskType || rawTaskId)
         .toUpperCase()
         .replace('TASK_', '')
         .replace('-TASK', '')
         .replace('_TASK', '');
 
+      // 1. Se selectedTask estiver ativo, verificar se ele corresponde ao tipo/ID do minigame executado
+      if (selectedTask) {
+        const isSameId = selectedTask.id === rawTaskId;
+        const selectedType = selectedTask.type.toUpperCase();
+        const isSameType =
+          selectedType === targetType ||
+          (selectedType.length > 2 && targetType.length > 2 && (selectedType.includes(targetType) || targetType.includes(selectedType)));
+
+        if ((isSameId || isSameType) && !completedTasks.includes(selectedTask.id)) {
+          const assignedMatch = assignedTasks.find((t) => t.id === selectedTask.id);
+          if (assignedMatch) return assignedMatch;
+        }
+      }
+
+      // 2. Match por ID exato do nó dentro de assignedTasks
+      const directIdMatch = assignedTasks.find(
+        (t) => t.id === rawTaskId && !completedTasks.includes(t.id)
+      );
+      if (directIdMatch) return directIdMatch;
+
+      // 3. Match estrito por tipo de tarefa dentro de assignedTasks (apenas nós pendentes)
       const typeMatch = assignedTasks.find((t) => {
         if (completedTasks.includes(t.id)) return false;
         const nodeType = t.type.toUpperCase();
-        return nodeType === searchType || nodeType.includes(searchType) || searchType.includes(nodeType);
+        return (
+          nodeType === targetType ||
+          (nodeType.length > 2 && targetType.length > 2 && (nodeType.includes(targetType) || targetType.includes(nodeType)))
+        );
       });
 
       return typeMatch || null;
