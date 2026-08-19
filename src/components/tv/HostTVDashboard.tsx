@@ -302,6 +302,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
   }
 
   // Recálculo dinâmico anti-deadlock de tarefas considerando APENAS tripulantes vivos
+  const alivePlayers = players.filter((p) => p.is_alive);
   const crewmates = players.filter((p) => p.role !== 'IMPOSTOR');
   const aliveCrewmates = crewmates.filter((p) => p.is_alive);
   const crewmateCount = aliveCrewmates.length > 0 ? aliveCrewmates.length : (crewmates.length > 0 ? crewmates.length : Math.max(1, players.length));
@@ -396,7 +397,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
             </div>
             <div className="flex justify-between items-center text-xs font-mono text-slate-400 mt-3 px-1">
               <span>{completedTasks} de {totalTasks} Tarefas Concluídas</span>
-              <span>Tripulantes Vivos: {alivePlayers.length}</span>
+              <span>Tripulantes Vivos: {aliveCrewmates.length}</span>
             </div>
           </div>
 
