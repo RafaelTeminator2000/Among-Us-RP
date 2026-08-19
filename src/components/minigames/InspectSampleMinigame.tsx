@@ -210,6 +210,9 @@ export const InspectSampleMinigame: React.FC<InspectSampleMinigameProps> = ({
     try {
       localStorage.setItem(storageKey, now.toString());
       localStorage.setItem(anomalyKey, randomAnomaly.toString());
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sample_status_changed'));
+      }
     } catch {}
 
     setAnomalyIndex(randomAnomaly);
@@ -237,6 +240,9 @@ export const InspectSampleMinigame: React.FC<InspectSampleMinigameProps> = ({
       try {
         localStorage.removeItem(storageKey);
         localStorage.removeItem(anomalyKey);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sample_status_changed'));
+        }
       } catch {}
 
       if (typeof window !== 'undefined' && 'navigator' in window && navigator.vibrate) {

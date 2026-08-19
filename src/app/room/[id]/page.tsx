@@ -651,6 +651,13 @@ export default function RoomPage({ params }: RoomPageProps) {
 
       try {
         localStorage.setItem(`room_roles_${roomId}`, JSON.stringify(newRoles));
+        localStorage.removeItem(`inspect_sample_start_${roomId}_${playerId}`);
+        localStorage.removeItem(`inspect_sample_anomaly_${roomId}_${playerId}`);
+        localStorage.removeItem(`inspect_sample_start_${roomId}_p-self`);
+        localStorage.removeItem(`inspect_sample_anomaly_${roomId}_p-self`);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sample_status_changed'));
+        }
       } catch {}
 
       // 4. Atualizar Supabase se a sala for um UUID válido
@@ -710,6 +717,16 @@ export default function RoomPage({ params }: RoomPageProps) {
     setActiveMinigame(null);
     setShowReportScanner(false);
     setShowBreakerGame(false);
+
+    try {
+      localStorage.removeItem(`inspect_sample_start_${roomId}_${playerId}`);
+      localStorage.removeItem(`inspect_sample_anomaly_${roomId}_${playerId}`);
+      localStorage.removeItem(`inspect_sample_start_${roomId}_p-self`);
+      localStorage.removeItem(`inspect_sample_anomaly_${roomId}_p-self`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sample_status_changed'));
+      }
+    } catch {}
 
     setAllPlayers((prev) =>
       prev.map((p) => ({
@@ -1385,6 +1402,8 @@ export default function RoomPage({ params }: RoomPageProps) {
           tasks={assignedTasks}
           completedTasks={completedTasks}
           playerRole={playerRole}
+          roomId={roomId}
+          playerId={playerId}
         />
       </main>
 
