@@ -398,6 +398,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           killCooldown,
           impostorCount,
           taskCount,
+          task_count: taskCount,
           discussionTime,
           votingTime,
           confirmEjections,

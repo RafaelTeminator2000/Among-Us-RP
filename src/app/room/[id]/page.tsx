@@ -30,6 +30,7 @@ import { DarknessOverlay } from '@/components/game/DarknessOverlay';
 import { BreakerMinigame } from '@/components/minigames/BreakerMinigame';
 import { ScratchMapPlan, TaskNode, DEFAULT_DEMO_MAP } from '@/types/grid-editor';
 import { PlayerGameState } from '@/types/game';
+import { getAssignedTasks } from '@/lib/game-utils';
 import {
   Users,
   Shield,
@@ -69,6 +70,16 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [allPlayers, setAllPlayers] = useState<PlayerGameState[]>([]);
   const [roomUuid, setRoomUuid] = useState<string>(roomId);
   const [mapData, setMapData] = useState<ScratchMapPlan | null>(null);
+  const [taskCount, setTaskCount] = useState<number>(4);
+  const [gameStartTime, setGameStartTime] = useState<number>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem(`room_game_time_${roomId}`);
+        if (stored) return Number(stored);
+      }
+    } catch {}
+    return 0;
+  });
 
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [isSabotaged, setIsSabotaged] = useState<boolean>(false);
@@ -108,6 +119,13 @@ export default function RoomPage({ params }: RoomPageProps) {
     impostorName: string;
     countdown: number;
   } | null>(null);
+
+  // Lista de tarefas atribuídas exclusivamente para este jogador (respeitando a quantidade de tarefas por tripulante configurada pelo host)
+  const assignedTasks = useMemo(() => {
+    const nodes = mapData?.nodes && mapData.nodes.length > 0 ? mapData.nodes : DEFAULT_DEMO_MAP.nodes;
+    const seed = `${roomId}_${gameStartTime}_${playerId || playerName || 'player'}`;
+    return getAssignedTasks(nodes, taskCount, seed);
+  }, [mapData, taskCount, roomId, gameStartTime, playerId, playerName]);
   const [roleRevealToast, setRoleRevealToast] = useState<{
     role: 'CREWMATE' | 'IMPOSTOR';
   } | null>(null);
@@ -240,6 +258,10 @@ export default function RoomPage({ params }: RoomPageProps) {
           targetRoomUuid = roomByCode.id;
           if (roomByCode.status) setRoomStatus(roomByCode.status as any);
           if (roomByCode.map_data) setMapData(roomByCode.map_data as unknown as ScratchMapPlan);
+          if (roomByCode.rules) {
+            const tc = (roomByCode.rules as any).task_count || (roomByCode.rules as any).taskCount;
+            if (tc) setTaskCount(Number(tc));
+          }
           if ((roomByCode as any).is_lights_sabotaged) {
             setIsLightsSabotaged(true);
             setIsSabotaged(true);
@@ -256,6 +278,10 @@ export default function RoomPage({ params }: RoomPageProps) {
         if (room) {
           if (room.status) setRoomStatus(room.status as any);
           if (room.map_data) setMapData(room.map_data as unknown as ScratchMapPlan);
+          if (room.rules) {
+            const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
+            if (tc) setTaskCount(Number(tc));
+          }
           if ((room as any).is_lights_sabotaged) {
             setIsLightsSabotaged(true);
             setIsSabotaged(true);
@@ -299,7 +325,7 @@ export default function RoomPage({ params }: RoomPageProps) {
             is_alive: p.status === 'ALIVE',
             is_host: false,
             completed_tasks: Array.isArray(p.completed_tasks) ? p.completed_tasks.length : 0,
-            total_tasks: 4,
+            total_tasks: taskCount,
             has_voted: false,
             voted_for_id: null,
           }));
@@ -328,6 +354,16 @@ export default function RoomPage({ params }: RoomPageProps) {
       setIsLightsSabotaged(false);
       setIsSabotaged(false);
       setPlayerStatus('ALIVE');
+
+      const tc = payload.rules?.taskCount || payload.rules?.task_count;
+      if (tc) {
+        setTaskCount(Number(tc));
+      }
+      const gTime = payload.timestamp || Date.now();
+      setGameStartTime(gTime);
+      try {
+        localStorage.setItem(`room_game_time_${roomId}`, String(gTime));
+      } catch {}
 
       if (payload.roles) {
         setRolesMap(payload.roles);
@@ -910,7 +946,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
   // Calcular progresso de tarefas da equipe
   const alivePlayers = allPlayers.filter((p) => p.is_alive);
-  const totalTasksCount = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * 4);
+  const totalTasksCount = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * taskCount);
   const myCompletedCount = completedTasks.length;
   const globalCompletedCount = allPlayers.length > 0
     ? allPlayers.reduce((acc, curr) => acc + getPlayerTaskCount(curr, curr.id === playerId), 0)
@@ -1137,7 +1173,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {/* Lista Informativa de Tarefas do Jogador */}
       <main className="my-auto space-y-4 z-10 py-3 flex-1 flex flex-col justify-start">
         <PlayerTaskList
-          tasks={mapData?.nodes && mapData.nodes.length > 0 ? mapData.nodes : DEFAULT_DEMO_MAP.nodes}
+          tasks={assignedTasks}
           completedTasks={completedTasks}
           playerRole={playerRole}
         />

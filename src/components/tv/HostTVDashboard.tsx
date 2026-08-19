@@ -17,6 +17,7 @@ interface TVDashboardProps {
 export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers = [] }: TVDashboardProps) {
   const [players, setPlayers] = useState<PlayerGameState[]>(initialPlayers);
   const [gameState, setGameState] = useState<'LOBBY' | 'PLAYING' | 'EMERGENCY_MEETING' | 'ENDED' | 'FINISHED'>('LOBBY');
+  const [taskCount, setTaskCount] = useState<number>(4);
   const [isLightsSabotaged, setIsLightsSabotaged] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [gameEvents, setGameEvents] = useState<GameEventRecord[]>([]);
@@ -44,6 +45,10 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
           targetUuid = roomByCode.id;
           if (roomByCode.code) setDisplayCode(roomByCode.code);
           if (roomByCode.status) setGameState(roomByCode.status as any);
+          if (roomByCode.rules) {
+            const tc = (roomByCode.rules as any).task_count || (roomByCode.rules as any).taskCount;
+            if (tc) setTaskCount(Number(tc));
+          }
           if ((roomByCode as any).is_lights_sabotaged) setIsLightsSabotaged(true);
         }
       } else {
@@ -56,6 +61,10 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
         if (room) {
           if (room.code) setDisplayCode(room.code);
           if (room.status) setGameState(room.status as any);
+          if (room.rules) {
+            const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
+            if (tc) setTaskCount(Number(tc));
+          }
           if ((room as any).is_lights_sabotaged) setIsLightsSabotaged(true);
         }
       }
@@ -76,7 +85,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
             is_alive: p.status === 'ALIVE',
             is_host: false,
             completed_tasks: Array.isArray(p.completed_tasks) ? p.completed_tasks.length : 0,
-            total_tasks: 4,
+            total_tasks: taskCount,
             has_voted: false,
             voted_for_id: null,
           }));
@@ -141,6 +150,10 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     playerName: 'Telão Central (TV)',
     playerRole: null,
     isAlive: true,
+    onGameStarted: (payload) => {
+      const tc = payload?.rules?.taskCount || payload?.rules?.task_count;
+      if (tc) setTaskCount(Number(tc));
+    },
     onRoomStatusChanged: (newStatus) => {
       setGameState(newStatus as any);
     },
@@ -186,7 +199,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
                 is_alive: p.is_alive,
                 is_host: false,
                 completed_tasks: 0,
-                total_tasks: 4,
+                total_tasks: taskCount,
                 has_voted: false,
                 voted_for_id: null,
               });
@@ -290,7 +303,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
 
   // Recálculo dinâmico anti-deadlock de tarefas considerando APENAS jogadores vivos
   const alivePlayers = players.filter((p) => p.is_alive);
-  const totalTasks = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * 4);
+  const totalTasks = Math.max(1, (alivePlayers.length > 0 ? alivePlayers.length : 1) * taskCount);
   const completedTasks = alivePlayers.reduce((acc, curr) => acc + (curr.completed_tasks || 0), 0);
   const taskProgress = Math.min(100, Math.round((completedTasks / totalTasks) * 100));
 
