@@ -101,13 +101,14 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
     };
   }, [isGameRunning]);
 
-  // Recálculo dinâmico do progresso global de tarefas
-  const alivePlayersCount = players.filter((p) => p.status === "ALIVE").length;
-  const totalRoomTasks = Math.max(
-    1,
-    (alivePlayersCount > 0 ? alivePlayersCount : players.length || 1) * taskCount
-  );
-  const totalCompletedTasks = players.reduce((acc, p) => {
+  // Recálculo dinâmico do progresso global de tarefas considerando APENAS tripulantes (desconsidera Impostores)
+  const crewmates = players.filter((p) => p.role !== "IMPOSTOR");
+  const aliveCrewmates = crewmates.filter((p) => p.status === "ALIVE" || (p as any).is_alive !== false);
+  const crewmateCount = aliveCrewmates.length > 0
+    ? aliveCrewmates.length
+    : (crewmates.length > 0 ? crewmates.length : Math.max(1, players.length));
+  const totalRoomTasks = Math.max(1, crewmateCount * taskCount);
+  const totalCompletedTasks = crewmates.reduce((acc, p) => {
     let count = 0;
     if (Array.isArray(p.completed_tasks)) {
       count = p.completed_tasks.length;
@@ -190,7 +191,14 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           setPlayers((prev) => {
             const mergedMap = new Map<string, Player>();
             prev.forEach((player) => mergedMap.set(player.id, player));
-            activePresencePlayers.forEach((player) => mergedMap.set(player.id, player));
+            activePresencePlayers.forEach((player) => {
+              const existing = mergedMap.get(player.id);
+              mergedMap.set(player.id, {
+                ...player,
+                role: player.role || existing?.role || null,
+                completed_tasks: existing?.completed_tasks ?? player.completed_tasks,
+              });
+            });
             return Array.from(mergedMap.values());
           });
         }
@@ -281,6 +289,20 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           ...prev.slice(0, 8),
         ]);
       })
+      .on("broadcast", { event: "IMPOSTOR_VICTORY" }, ({ payload }) => {
+        setStatusMessage("🔪 Vitória dos Impostores! Os impostores dominaram a tripulação.");
+        setActionLogs((prev) => [
+          `🔪 VITÓRIA DOS IMPOSTORES! Tripulação eliminada.`,
+          ...prev.slice(0, 8),
+        ]);
+      })
+      .on("broadcast", { event: "impostor_victory" }, ({ payload }) => {
+        setStatusMessage("🔪 Vitória dos Impostores! Os impostores dominaram a tripulação.");
+        setActionLogs((prev) => [
+          `🔪 VITÓRIA DOS IMPOSTORES! Tripulação eliminada.`,
+          ...prev.slice(0, 8),
+        ]);
+      })
       .on("broadcast", { event: "RETURN_TO_LOBBY" }, () => {
         setIsGameRunning(false);
         setActiveTab("LOBBY");
@@ -361,6 +383,14 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
       players.forEach((p) => {
         rolesMap[p.id] = impostorIds.has(p.id) ? "IMPOSTOR" : "CREWMATE";
       });
+
+      // Atualizar papéis dos jogadores localmente no estado do Host
+      setPlayers((prev) =>
+        prev.map((p) => ({
+          ...p,
+          role: rolesMap[p.id] || p.role || "CREWMATE",
+        }))
+      );
 
       if (isValidUuid) {
         const isPlayerUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);

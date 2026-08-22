@@ -71,7 +71,8 @@ export interface UseRealtimeGameProps {
   onSkipDiscussion?: () => void;
   onVoteCast?: (payload: any) => void;
   onVotingFinished?: (payload: any) => void;
-  onCrewmateVictory?: (payload: { impostorName?: string; timestamp?: number }) => void;
+  onCrewmateVictory?: (payload: { impostorName?: string; reason?: string; timestamp?: number }) => void;
+  onImpostorVictory?: (payload: { impostorName?: string; reason?: string; timestamp?: number }) => void;
   onRoomStatusChanged?: (newStatus: string) => void;
   onPlayersPresenceChanged?: (players: PresencePlayer[]) => void;
 }
@@ -95,6 +96,7 @@ export function useRealtimeGame({
   onVoteCast,
   onVotingFinished,
   onCrewmateVictory,
+  onImpostorVictory,
   onRoomStatusChanged,
   onPlayersPresenceChanged,
 }: UseRealtimeGameProps) {
@@ -118,6 +120,7 @@ export function useRealtimeGame({
     onVoteCast,
     onVotingFinished,
     onCrewmateVictory,
+    onImpostorVictory,
     onRoomStatusChanged,
     onPlayersPresenceChanged,
   });
@@ -133,6 +136,7 @@ export function useRealtimeGame({
     onVoteCast,
     onVotingFinished,
     onCrewmateVictory,
+    onImpostorVictory,
     onRoomStatusChanged,
     onPlayersPresenceChanged,
   };
@@ -309,6 +313,12 @@ export function useRealtimeGame({
         })
         .on('broadcast', { event: 'crewmate_victory' }, (payload) => {
           if (callbacksRef.current.onCrewmateVictory) callbacksRef.current.onCrewmateVictory(payload.payload);
+        })
+        .on('broadcast', { event: 'IMPOSTOR_VICTORY' }, (payload) => {
+          if (callbacksRef.current.onImpostorVictory) callbacksRef.current.onImpostorVictory(payload.payload);
+        })
+        .on('broadcast', { event: 'impostor_victory' }, (payload) => {
+          if (callbacksRef.current.onImpostorVictory) callbacksRef.current.onImpostorVictory(payload.payload);
         })
         .on('broadcast', { event: 'RETURN_TO_LOBBY' }, () => {
           if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');

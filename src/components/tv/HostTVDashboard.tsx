@@ -157,6 +157,12 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     onRoomStatusChanged: (newStatus) => {
       setGameState(newStatus as any);
     },
+    onCrewmateVictory: () => {
+      setGameState('ENDED');
+    },
+    onImpostorVictory: () => {
+      setGameState('ENDED');
+    },
     onSabotageTriggered: (payload) => {
       if (!payload || payload.type === 'LIGHTS') {
         setIsLightsSabotaged(true);

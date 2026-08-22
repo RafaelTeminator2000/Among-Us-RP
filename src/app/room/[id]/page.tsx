@@ -49,6 +49,7 @@ import {
   Trophy,
   Sparkles,
   AlertTriangle,
+  Skull,
 } from 'lucide-react';
 
 interface RoomPageProps {
@@ -122,8 +123,10 @@ export default function RoomPage({ params }: RoomPageProps) {
     return {};
   });
   const [victoryModal, setVictoryModal] = useState<{
+    winnerTeam?: 'CREWMATE' | 'IMPOSTOR';
     impostorName: string;
     countdown: number;
+    reason?: string;
   } | null>(null);
 
   // Lista de tarefas atribuídas exclusivamente para este jogador (respeitando a quantidade de tarefas por tripulante configurada pelo host)
@@ -404,11 +407,28 @@ export default function RoomPage({ params }: RoomPageProps) {
     onCrewmateVictory: (payload) => {
       stopAll();
       playTaskBeep();
+      setRoomStatus('FINISHED');
       setVictoryModal((prev) => {
         if (prev) return prev;
         return {
+          winnerTeam: 'CREWMATE',
           impostorName: payload?.impostorName || 'O Impostor',
           countdown: 5,
+          reason: payload?.reason,
+        };
+      });
+    },
+    onImpostorVictory: (payload) => {
+      stopAll();
+      playEmergencyBuzzer();
+      setRoomStatus('FINISHED');
+      setVictoryModal((prev) => {
+        if (prev) return prev;
+        return {
+          winnerTeam: 'IMPOSTOR',
+          impostorName: payload?.impostorName || 'Os Impostores',
+          countdown: 5,
+          reason: payload?.reason || 'Os Impostores dominaram a nave!',
         };
       });
     },
@@ -421,6 +441,41 @@ export default function RoomPage({ params }: RoomPageProps) {
       ) {
         setPlayerStatus('ELIMINATED');
       }
+
+      setAllPlayers((prev) => {
+        const targetVictimId = payload.victimId || (payload as any).targetId;
+        const updated = prev.map((p) =>
+          p.id === targetVictimId || (payload as any).victimName === p.nickname
+            ? { ...p, is_alive: false }
+            : p
+        );
+
+        const alive = updated.filter((p) => p.is_alive !== false);
+        const aliveImps = alive.filter((p) => p.role === 'IMPOSTOR').length;
+        const aliveCrews = alive.filter((p) => p.role !== 'IMPOSTOR').length;
+
+        if (aliveImps > 0 && aliveImps >= aliveCrews && roomStatus === 'PLAYING') {
+          stopAll();
+          playEmergencyBuzzer();
+          setVictoryModal((modal) => {
+            if (modal) return modal;
+            return {
+              winnerTeam: 'IMPOSTOR',
+              impostorName: 'Os Impostores',
+              countdown: 5,
+              reason: 'Os Impostores eliminaram a tripulação!',
+            };
+          });
+
+          broadcastEvent('IMPOSTOR_VICTORY', {
+            winnerTeam: 'IMPOSTOR',
+            reason: 'IMPOSTOR_DOMINANCE',
+            timestamp: Date.now(),
+          }).catch(() => {});
+        }
+
+        return updated;
+      });
     },
     onEmergencyMeeting: (payload) => {
       playEmergencyBuzzer();
@@ -789,38 +844,64 @@ export default function RoomPage({ params }: RoomPageProps) {
           setPlayerStatus('ELIMINATED');
         }
 
-        // Atualizar status de vivo na lista local de jogadores
-        setAllPlayers((prev) =>
-          prev.map((p) =>
-            p.id === result.ejectedPlayerId ? { ...p, is_alive: false } : p
-          )
+        const updatedPlayers = allPlayers.map((p) =>
+          p.id === result.ejectedPlayerId ? { ...p, is_alive: false } : p
         );
+        setAllPlayers(updatedPlayers);
 
-        if (result.isImpostor) {
-          // O Impostor foi ejetado! Os tripulantes ganharam!
+        const alivePlayers = updatedPlayers.filter((p) => p.is_alive !== false);
+        const aliveImpostors = alivePlayers.filter((p) => p.role === 'IMPOSTOR').length;
+        const aliveCrewmates = alivePlayers.filter((p) => p.role !== 'IMPOSTOR').length;
+
+        if (aliveImpostors === 0) {
           const impName = result.ejectedPlayerName || 'O Impostor';
           playTaskBeep();
+          setRoomStatus('FINISHED');
 
-          // Exibir modal de vitória com contagem regressiva para retornar ao lobby de espera
           setVictoryModal((prev) => {
             if (prev) return prev;
             return {
+              winnerTeam: 'CREWMATE',
               impostorName: impName,
               countdown: 5,
             };
           });
 
-          // Broadcast de vitória para toda a sala
           broadcastEvent('CREWMATE_VICTORY', {
             impostorName: impName,
             ejectedPlayerId: result.ejectedPlayerId,
             timestamp: Date.now(),
           }).catch(() => {});
+        } else if (aliveImpostors >= aliveCrewmates) {
+          playEmergencyBuzzer();
+          setRoomStatus('FINISHED');
+          const reasonMsg = result.isImpostor
+            ? 'Apesar do ejetamento, os impostores restantes dominaram a nave!'
+            : `${result.ejectedPlayerName || 'Tripulante'} foi ejetado e os Impostores dominaram a nave!`;
+
+          setVictoryModal((prev) => {
+            if (prev) return prev;
+            return {
+              winnerTeam: 'IMPOSTOR',
+              impostorName: 'Os Impostores',
+              countdown: 5,
+              reason: reasonMsg,
+            };
+          });
+
+          broadcastEvent('IMPOSTOR_VICTORY', {
+            winnerTeam: 'IMPOSTOR',
+            reason: 'IMPOSTOR_DOMINANCE',
+            timestamp: Date.now(),
+          }).catch(() => {});
         } else {
-          // Um Tripulante foi ejetado ao invés do Impostor: A partida continua!
           setRoomStatus('PLAYING');
-          const crewName = result.ejectedPlayerName || 'Tripulante';
-          setTaskFeedback(`⚠️ ${crewName} NÃO era o Impostor! A partida continua.`);
+          const ejectedName = result.ejectedPlayerName || 'Jogador';
+          if (result.isImpostor) {
+            setTaskFeedback(`⚠️ ${ejectedName} ERA um Impostor! A partida continua.`);
+          } else {
+            setTaskFeedback(`⚠️ ${ejectedName} NÃO era o Impostor! A partida continua.`);
+          }
           setTimeout(() => setTaskFeedback(null), 5000);
         }
       } else {
@@ -1205,8 +1286,8 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
   }, [progressPercentage, roomStatus, victoryModal, stopAll, playTaskBeep, broadcastEvent]);
 
-  // Se o jogador estiver eliminado, exibe a tela de morte sem fantasmas (apenas enquanto a partida está em andamento)
-  if (playerStatus === 'ELIMINATED' && roomStatus !== 'EMERGENCY_MEETING' && roomStatus !== 'LOBBY') {
+  // Se o jogador estiver eliminado, exibe a tela de morte sem fantasmas (apenas se a partida continuar e não houver modal de vitória)
+  if (playerStatus === 'ELIMINATED' && roomStatus !== 'EMERGENCY_MEETING' && roomStatus !== 'LOBBY' && roomStatus !== 'FINISHED' && !victoryModal) {
     const meAsPlayer: PlayerGameState = {
       id: playerId || 'self',
       nickname: playerName,
@@ -1233,8 +1314,8 @@ export default function RoomPage({ params }: RoomPageProps) {
     );
   }
 
-  // Se a sala estiver em Reunião de Emergência / Votação
-  if (roomStatus === 'EMERGENCY_MEETING') {
+  // Se a sala estiver em Reunião de Emergência / Votação (e a partida não estiver finalizada)
+  if (roomStatus === 'EMERGENCY_MEETING' && !victoryModal) {
     const isCurrentUserHost = Boolean(
       (typeof window !== 'undefined' && (
         localStorage.getItem(`is_host_${roomId}`) === 'true' ||
@@ -2032,47 +2113,84 @@ export default function RoomPage({ params }: RoomPageProps) {
         </>
       )}
 
-      {/* Modal de Vitória dos Tripulantes com Contagem Regressiva para Nova Partida */}
+      {/* Modal de Vitória dos Tripulantes / Impostores com Contagem Regressiva */}
       {victoryModal && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-50 flex items-center justify-center p-4 animate-fade-in font-sans">
-          <div className="max-w-sm w-full bg-slate-900 border-2 border-emerald-500/80 rounded-3xl p-6 text-center space-y-5 shadow-[0_0_50px_rgba(16,185,129,0.3)] relative overflow-hidden">
-            <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-emerald-500 via-cyan-400 to-emerald-500" />
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-50 flex items-center justify-center p-4 animate-fade-in font-sans select-none">
+          {victoryModal.winnerTeam === 'IMPOSTOR' ? (
+            <div className="max-w-sm w-full bg-slate-950 border-2 border-red-600/90 rounded-3xl p-6 text-center space-y-5 shadow-[0_0_60px_rgba(220,38,38,0.5)] relative overflow-hidden animate-in zoom-in-95">
+              <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-red-600 via-rose-500 to-red-600 animate-pulse" />
 
-            <div className="w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 mx-auto flex items-center justify-center shadow-lg animate-bounce">
-              <Trophy className="w-10 h-10" />
+              <div className="w-20 h-20 rounded-full bg-red-950/80 border-2 border-red-500 text-red-500 mx-auto flex items-center justify-center shadow-[0_0_25px_rgba(239,68,68,0.4)] animate-bounce font-sans">
+                <Skull className="w-10 h-10" />
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-red-400 bg-red-950/90 px-3 py-1 rounded-full border border-red-800/80 inline-flex items-center gap-1">
+                  <Skull className="w-3 h-3" />
+                  <span>Partida Finalizada</span>
+                </span>
+                <h2 className="text-2xl font-black text-red-500 uppercase tracking-wider font-mono">
+                  Vitória dos Impostores! 🔪
+                </h2>
+                <p className="text-xs text-slate-300">
+                  {victoryModal.reason || 'Os Impostores dominaram a nave! A tripulação não pode mais detê-los.'}
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-900/90 rounded-2xl border border-red-900/50 flex items-center justify-between text-xs font-mono">
+                <span className="text-slate-400">Retornando à tela de espera em:</span>
+                <span className="font-black text-red-400 text-base">
+                  {victoryModal.countdown}s
+                </span>
+              </div>
+
+              <button
+                onClick={() => handleReturnToLobby()}
+                className="w-full py-3.5 bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>Voltar à Tela de Espera</span>
+              </button>
             </div>
+          ) : (
+            <div className="max-w-sm w-full bg-slate-900 border-2 border-emerald-500/80 rounded-3xl p-6 text-center space-y-5 shadow-[0_0_50px_rgba(16,185,129,0.3)] relative overflow-hidden animate-in zoom-in-95">
+              <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-emerald-500 via-cyan-400 to-emerald-500" />
 
-            <div className="space-y-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-800/80 inline-flex items-center gap-1">
-                <Sparkles className="w-3 h-3" />
-                <span>Partida Finalizada</span>
-              </span>
-              <h2 className="text-xl font-black text-white uppercase tracking-wider">
-                Vitória dos Tripulantes!
-              </h2>
-              <p className="text-xs text-slate-300">
-                {victoryModal.impostorName.includes('tarefas') ? (
-                  <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong>
-                ) : (
-                  <>O Impostor <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong> foi ejetado da nave.</>
-                )}
-              </p>
+              <div className="w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 mx-auto flex items-center justify-center shadow-lg animate-bounce">
+                <Trophy className="w-10 h-10" />
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-800/80 inline-flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  <span>Partida Finalizada</span>
+                </span>
+                <h2 className="text-xl font-black text-white uppercase tracking-wider">
+                  Vitória dos Tripulantes!
+                </h2>
+                <p className="text-xs text-slate-300">
+                  {victoryModal.impostorName.includes('tarefas') ? (
+                    <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong>
+                  ) : (
+                    <>O Impostor <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong> foi ejetado da nave.</>
+                  )}
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-950/90 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-400">Retornando ao Lobby em:</span>
+                <span className="font-mono font-black text-cyan-400 text-sm">
+                  {victoryModal.countdown}s
+                </span>
+              </div>
+
+              <button
+                onClick={() => handleReturnToLobby()}
+                className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>Voltar à Sala de Espera</span>
+              </button>
             </div>
-
-            <div className="p-3 bg-slate-950/90 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Retornando ao Lobby em:</span>
-              <span className="font-mono font-black text-cyan-400 text-sm">
-                {victoryModal.countdown}s
-              </span>
-            </div>
-
-            <button
-              onClick={() => handleReturnToLobby()}
-              className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
-            >
-              <span>Voltar à Sala de Espera (Host)</span>
-            </button>
-          </div>
+          )}
         </div>
       )}
 

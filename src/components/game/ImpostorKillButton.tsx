@@ -178,6 +178,22 @@ export const ImpostorKillButton: React.FC<ImpostorKillProps> = ({
         navigator.vibrate([150, 50, 150]);
       }
 
+      if (players && players.length > 0) {
+        const remainingAlive = players.filter(
+          (p) => p.id !== targetId && p.is_alive !== false && (p as any).status !== "ELIMINATED"
+        );
+        const aliveImpostors = remainingAlive.filter((p) => p.role === "IMPOSTOR").length;
+        const aliveCrewmates = remainingAlive.filter((p) => p.role !== "IMPOSTOR").length;
+
+        if (aliveImpostors > 0 && aliveImpostors >= aliveCrewmates) {
+          const winPayload = { winnerTeam: "IMPOSTOR", reason: "IMPOSTOR_DOMINANCE", timestamp: Date.now() };
+          if (sendBroadcast) {
+            await sendBroadcast("IMPOSTOR_VICTORY", winPayload);
+            await sendBroadcast("impostor_victory", winPayload);
+          }
+        }
+      }
+
       if (onKillExecuted) {
         onKillExecuted(targetId, victimName);
       }
