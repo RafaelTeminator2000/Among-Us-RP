@@ -32,7 +32,7 @@ import { EmergencyButtonModal } from '@/components/minigames/EmergencyButtonModa
 import { DarknessOverlay } from '@/components/game/DarknessOverlay';
 import { BreakerMinigame } from '@/components/minigames/BreakerMinigame';
 import { ScratchMapPlan, TaskNode, DEFAULT_DEMO_MAP } from '@/types/grid-editor';
-import { PlayerGameState } from '@/types/game';
+import { PlayerGameState, RoomStatus } from '@/types/game';
 import { getAssignedTasks } from '@/lib/game-utils';
 import {
   Users,
@@ -62,7 +62,7 @@ export default function RoomPage({ params }: RoomPageProps) {
   const isValidUuid = (str?: string) =>
     typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
-  const [roomStatus, setRoomStatus] = useState<'LOBBY' | 'PLAYING' | 'EMERGENCY_MEETING' | 'ENDED'>('LOBBY');
+  const [roomStatus, setRoomStatus] = useState<RoomStatus>('LOBBY');
   const [playerStatus, setPlayerStatus] = useState<'ALIVE' | 'ELIMINATED'>('ALIVE');
   const [playerRole, setPlayerRole] = useState<'CREWMATE' | 'IMPOSTOR' | null>(null);
   const [playerId, setPlayerId] = useState<string>('');

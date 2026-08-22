@@ -6,7 +6,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export type RoomStatus = "LOBBY" | "PLAYING" | "EMERGENCY_MEETING" | "ENDED";
+export type RoomStatus = "LOBBY" | "PLAYING" | "EMERGENCY_MEETING" | "ENDED" | "FINISHED";
 export type PlayerRole = "CREWMATE" | "IMPOSTOR";
 export type PlayerStatus = "ALIVE" | "ELIMINATED";
 export type TaskType =
