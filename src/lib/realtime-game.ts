@@ -125,6 +125,7 @@ export function useRealtimeGame({
     onImpostorVictory,
     onRoomStatusChanged,
     onPlayersPresenceChanged,
+    onPlayerKicked,
   });
 
   callbacksRef.current = {
