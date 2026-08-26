@@ -77,8 +77,13 @@ export default function Home() {
     }
 
     const formData = new FormData();
+    const previousPlayerId = typeof window !== 'undefined' ? localStorage.getItem('current_player_id') : null;
+
     formData.append('playerName', guestName.trim());
     formData.append('code', roomCode);
+    if (previousPlayerId) {
+      formData.append('previousPlayerId', previousPlayerId);
+    }
 
     startTransition(async () => {
       if (typeof window !== 'undefined') {

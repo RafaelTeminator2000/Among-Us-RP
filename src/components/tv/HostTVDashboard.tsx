@@ -192,17 +192,32 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
       if (presencePlayers.length > 0) {
         setPlayers((prev) => {
           const map = new Map(prev.map((p) => [p.id, p]));
-          presencePlayers.forEach((p) => {
+          presencePlayers.forEach((p: any) => {
+            const pid = (p.id || p.playerId || '').toString();
+            const pName = (p.name || p.player_name || p.playerName || '').toString().toLowerCase();
+
+            // Ignorar presenças de sistema (Telão da TV e Console do Host)
+            if (
+              pid.startsWith('tv_') ||
+              pid.startsWith('host_') ||
+              pName.includes('telão central') ||
+              pName.includes('telao central') ||
+              pName.includes('tv') ||
+              p.is_system === true
+            ) {
+              return;
+            }
+
             if (map.has(p.id)) {
               const existing = map.get(p.id)!;
-              existing.is_alive = p.is_alive;
+              existing.is_alive = p.is_alive !== false;
             } else {
               map.set(p.id, {
                 id: p.id,
-                nickname: p.name,
+                nickname: p.name || p.player_name || 'Tripulante',
                 color: p.color_hex || '#ef4444',
                 role: p.role,
-                is_alive: p.is_alive,
+                is_alive: p.is_alive !== false,
                 is_host: false,
                 completed_tasks: 0,
                 total_tasks: taskCount,
@@ -211,7 +226,18 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
               });
             }
           });
-          return Array.from(map.values());
+
+          // Filtrar qualquer resquício de Telão da TV ou Host no array final
+          return Array.from(map.values()).filter((p) => {
+            const name = (p.nickname || '').toLowerCase();
+            const id = (p.id || '').toString();
+            return (
+              !id.startsWith('tv_') &&
+              !id.startsWith('host_') &&
+              !name.includes('telão central') &&
+              !name.includes('telao central')
+            );
+          });
         });
       }
     },
@@ -235,7 +261,32 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
           filter: `room_id=eq.${roomId}`,
         },
         (payload) => {
-          if (payload.eventType === 'UPDATE' && payload.new) {
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const inserted = payload.new as any;
+            const pName = (inserted.player_name || '').toString().toLowerCase();
+            if (pName.includes('telão central') || pName.includes('telao central')) return;
+
+            setPlayers((prev) => {
+              if (prev.some((p) => p.id === inserted.id)) return prev;
+              return [
+                ...prev,
+                {
+                  id: inserted.id,
+                  nickname: inserted.player_name || 'Tripulante',
+                  color: inserted.color_hex || '#ef4444',
+                  role: inserted.role || null,
+                  is_alive: inserted.status === 'ALIVE',
+                  is_host: false,
+                  completed_tasks: 0,
+                  total_tasks: taskCount,
+                  has_voted: false,
+                  voted_for_id: null,
+                },
+              ];
+            });
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            setPlayers((prev) => prev.filter((p) => p.id !== payload.old.id));
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updated = payload.new as any;
             const tasksCount = Array.isArray(updated.completed_tasks)
               ? updated.completed_tasks.length

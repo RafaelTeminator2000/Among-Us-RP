@@ -176,6 +176,14 @@ export async function joinRoomAction(
       typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
     if (isValidUuid(targetRoomId)) {
+      const previousPlayerId = formData.get('previousPlayerId') as string | null;
+      if (previousPlayerId && isValidUuid(previousPlayerId)) {
+        await supabase.from('room_players').delete().eq('id', previousPlayerId);
+      }
+      if (playerName) {
+        await supabase.from('room_players').delete().eq('player_name', playerName).neq('room_id', targetRoomId!);
+      }
+
       const { error: playerError } = await supabase.from('room_players').insert({
         id: playerId,
         room_id: targetRoomId!,

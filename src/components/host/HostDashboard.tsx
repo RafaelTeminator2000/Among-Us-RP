@@ -126,33 +126,19 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
     setGlobalTaskProgress(calculatedGlobalTaskProgress);
   }, [calculatedGlobalTaskProgress]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && roomId) {
+      localStorage.setItem('host_current_room_id', roomId);
+      if (roomCode) localStorage.setItem('host_current_room_code', roomCode);
+    }
+  }, [roomId, roomCode]);
+
   // Escuta Realtime e Presença
   useEffect(() => {
     if (!roomId) return;
 
-    const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
-
-    const fetchPlayers = async () => {
-      if (!isValidUuid) {
-        if (initialPlayers && initialPlayers.length > 0) {
-          setPlayers(initialPlayers);
-        }
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("room_players")
-        .select("*")
-        .eq("room_id", roomId);
-
-      if (error) {
-        console.error("Erro ao buscar jogadores do Supabase:", error.message || error);
-      } else if (data) {
-        setPlayers(data as Player[]);
-      }
-    };
-
-    fetchPlayers();
+    const isUuid = (str?: string) =>
+      typeof str === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
     const topicKey = (roomCode || roomId).trim().toLowerCase();
     const channelTopic = `room:${topicKey}:game_flow`;
@@ -167,16 +153,133 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
 
     channelRef.current = channel;
 
+    // Registrar ouvintes postgres_changes de forma SÍNCRONA antes de chamar subscribe()
+    if (isUuid(roomId)) {
+      channel
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "room_players",
+            filter: `room_id=eq.${roomId}`,
+          },
+          (payload) => {
+            if (payload.eventType === "INSERT") {
+              setPlayers((prev) => {
+                if (prev.some((p) => p.id === (payload.new as Player).id)) return prev;
+                return [...prev, payload.new as Player];
+              });
+            } else if (payload.eventType === "DELETE") {
+              setPlayers((prev) => prev.filter((p) => p.id !== payload.old.id));
+            } else if (payload.eventType === "UPDATE") {
+              setPlayers((prev) =>
+                prev.map((p) => (p.id === (payload.new as Player).id ? (payload.new as Player) : p))
+              );
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "rooms",
+            filter: `id=eq.${roomId}`,
+          },
+          (payload: any) => {
+            const newStatus = payload.new?.status;
+            if (newStatus === "PLAYING" || newStatus === "EMERGENCY_MEETING") {
+              setIsGameRunning(true);
+              setActiveTab("MASTER");
+            } else if (newStatus === "LOBBY" || newStatus === "ENDED" || newStatus === "FINISHED") {
+              setIsGameRunning(false);
+              setActiveTab("LOBBY");
+            }
+          }
+        );
+    }
+
+    const fetchRoomAndPlayers = async () => {
+      const cleanCode = (roomCode || roomId || "").trim().toUpperCase();
+      let resolvedUuid = isUuid(roomId) ? roomId : null;
+
+      // 1. Buscar status atual da sala no banco de dados por UUID ou CODE de 4 dígitos
+      let roomQuery = supabase.from("rooms").select("id, status, rules");
+      if (resolvedUuid) {
+        roomQuery = roomQuery.eq("id", resolvedUuid);
+      } else if (cleanCode) {
+        roomQuery = roomQuery.eq("code", cleanCode);
+      }
+
+      const { data: roomData } = await roomQuery.maybeSingle();
+
+      if (roomData) {
+        resolvedUuid = roomData.id;
+
+        if (roomData.status === "PLAYING" || roomData.status === "EMERGENCY_MEETING") {
+          setIsGameRunning(true);
+          setActiveTab("MASTER");
+        } else if (roomData.status === "LOBBY" || roomData.status === "ENDED" || roomData.status === "FINISHED") {
+          setIsGameRunning(false);
+          setActiveTab("LOBBY");
+        }
+
+        if (roomData.rules) {
+          const rules = roomData.rules as any;
+          if (rules.impostor_count || rules.impostorCount) setImpostorCount(Number(rules.impostor_count || rules.impostorCount));
+          if (rules.kill_cooldown || rules.killCooldown) setKillCooldown(Number(rules.kill_cooldown || rules.killCooldown));
+          if (rules.task_count || rules.taskCount) setTaskCount(Number(rules.task_count || rules.taskCount));
+          if (rules.discussion_time || rules.discussionTime) setDiscussionTime(Number(rules.discussion_time || rules.discussionTime));
+          if (rules.voting_time || rules.votingTime) setVotingTime(Number(rules.voting_time || rules.votingTime));
+        }
+      }
+
+      // 2. Buscar lista de jogadores cadastrados na sala (apenas se for um UUID válido no Postgres)
+      const targetRoomId = resolvedUuid || (isUuid(roomId) ? roomId : null);
+      if (targetRoomId && isUuid(targetRoomId)) {
+        const { data: playersData, error: playersError } = await supabase
+          .from("room_players")
+          .select("*")
+          .eq("room_id", targetRoomId);
+
+        if (playersError) {
+          console.error("Erro ao buscar jogadores do Supabase:", playersError.message || playersError);
+        } else if (playersData) {
+          setPlayers(playersData as Player[]);
+        }
+      } else if (initialPlayers && initialPlayers.length > 0) {
+        setPlayers(initialPlayers);
+      }
+    };
+
+    fetchRoomAndPlayers();
+
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
-        const activePresencePlayers: Player[] = [];
+        const activePresencePlayersMap = new Map<string, Player>();
 
         Object.values(state).forEach((presences) => {
           presences.forEach((p: any) => {
             if (p && (p.id || p.playerId) && (p.name || p.player_name || p.playerName)) {
-              activePresencePlayers.push({
-                id: p.id || p.playerId,
+              const pid = (p.id || p.playerId || "").toString();
+              const pName = (p.name || p.player_name || p.playerName || "").toString().toLowerCase();
+
+              // Ignorar presenças de sistema (Telão da TV e Console do Host)
+              if (
+                pid.startsWith("host_") ||
+                pid.startsWith("tv_") ||
+                pName.includes("telão central") ||
+                pName.includes("telao central") ||
+                pName.includes("host suite") ||
+                p.is_system === true
+              ) {
+                return;
+              }
+
+              activePresencePlayersMap.set(pid, {
+                id: pid,
                 room_id: roomId,
                 player_name: p.name || p.player_name || p.playerName || "Tripulante",
                 color_hex: p.color_hex || p.colorHex || "#3b82f6",
@@ -187,24 +290,60 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           });
         });
 
-        if (activePresencePlayers.length > 0) {
-          setPlayers((prev) => {
-            const mergedMap = new Map<string, Player>();
-            prev.forEach((player) => mergedMap.set(player.id, player));
-            activePresencePlayers.forEach((player) => {
-              const existing = mergedMap.get(player.id);
+        setPlayers((prev) => {
+          const mergedMap = new Map<string, Player>();
+          prev.forEach((player) => {
+            // Manter se for bot ou se estiver no Presence ativo
+            if (player.id.startsWith("bot_")) {
+              mergedMap.set(player.id, player);
+            } else if (activePresencePlayersMap.has(player.id)) {
+              const pres = activePresencePlayersMap.get(player.id)!;
               mergedMap.set(player.id, {
-                ...player,
-                role: player.role || existing?.role || null,
-                completed_tasks: existing?.completed_tasks ?? player.completed_tasks,
+                ...pres,
+                role: pres.role || player.role || null,
+                completed_tasks: player.completed_tasks ?? pres.completed_tasks,
               });
-            });
-            return Array.from(mergedMap.values());
+            } else if (isGameRunning) {
+              // Se em jogo, manter jogador (pode ter sido desconectado temporariamente)
+              mergedMap.set(player.id, player);
+            }
+            // Se no Lobby e não está no Presence nem é bot, é removido!
           });
-        }
+
+          // Adicionar novos jogadores do Presence
+          activePresencePlayersMap.forEach((player, pid) => {
+            if (!mergedMap.has(pid)) {
+              mergedMap.set(pid, player);
+            }
+          });
+
+          return Array.from(mergedMap.values()).filter((p) => {
+            const name = (p.player_name || "").toLowerCase();
+            const id = (p.id || "").toString();
+            return (
+              !id.startsWith("tv_") &&
+              !id.startsWith("host_") &&
+              !name.includes("telão central") &&
+              !name.includes("telao central")
+            );
+          });
+        });
       })
       .on("broadcast", { event: "PLAYER_JOINED" }, ({ payload }) => {
         if (payload && (payload.id || payload.playerId)) {
+          const pid = (payload.id || payload.playerId || "").toString();
+          const pName = (payload.player_name || payload.name || payload.playerName || "").toString().toLowerCase();
+
+          if (
+            pid.startsWith("host_") ||
+            pid.startsWith("tv_") ||
+            pName.includes("telão central") ||
+            pName.includes("telao central") ||
+            pName.includes("host suite") ||
+            payload.is_system === true
+          ) {
+            return;
+          }
           const newPlayer: Player = {
             id: payload.id || payload.playerId,
             room_id: roomId,
@@ -314,32 +453,6 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         setStatusMessage("Retornado ao Lobby de espera.");
       });
 
-    if (isValidUuid) {
-      channel.on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "room_players",
-          filter: `room_id=eq.${roomId}`,
-        },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            setPlayers((prev) => {
-              if (prev.some((p) => p.id === (payload.new as Player).id)) return prev;
-              return [...prev, payload.new as Player];
-            });
-          } else if (payload.eventType === "DELETE") {
-            setPlayers((prev) => prev.filter((p) => p.id === payload.old.id));
-          } else if (payload.eventType === "UPDATE") {
-            setPlayers((prev) =>
-              prev.map((p) => (p.id === (payload.new as Player).id ? (payload.new as Player) : p))
-            );
-          }
-        }
-      );
-    }
-
     channel.subscribe();
 
     return () => {
@@ -355,9 +468,23 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
   };
 
   // Expulsar jogador
-  const handleKickPlayer = (playerId: string) => {
+  const handleKickPlayer = async (playerId: string) => {
     setPlayers((prev) => prev.filter((p) => p.id !== playerId));
     setActionLogs((prev) => [`✕ Jogador expulso pelo host.`, ...prev.slice(0, 8)]);
+
+    // Transmitir evento broadcast PLAYER_KICKED em tempo real
+    if (channelRef.current) {
+      await channelRef.current.send({
+        type: "broadcast",
+        event: "PLAYER_KICKED",
+        payload: { playerId, kickedId: playerId },
+      }).catch(() => {});
+    }
+
+    const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
+    if (isValidUuid) {
+      await supabase.from("room_players").delete().eq("id", playerId);
+    }
   };
 
   // Iniciar Partida

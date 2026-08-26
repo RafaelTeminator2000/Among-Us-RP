@@ -14,10 +14,17 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      const paramRoomId = params.get('roomId');
-      const paramCode = params.get('code');
-      if (paramRoomId) setRoomId(paramRoomId);
-      if (paramCode) setRoomCode(paramCode);
+      const paramRoomId = params.get('roomId') || localStorage.getItem('host_current_room_id');
+      const paramCode = params.get('code') || localStorage.getItem('host_current_room_code');
+
+      if (paramRoomId) {
+        setRoomId(paramRoomId);
+        localStorage.setItem('host_current_room_id', paramRoomId);
+      }
+      if (paramCode) {
+        setRoomCode(paramCode);
+        localStorage.setItem('host_current_room_code', paramCode);
+      }
     }
   }, []);
 
@@ -39,7 +46,7 @@ export default function AdminDashboardPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <Link
-              href="/admin/print"
+              href={`/admin/print?roomId=${encodeURIComponent(roomId)}&code=${encodeURIComponent(roomCode)}`}
               className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs uppercase tracking-wider rounded-xl border border-slate-700 transition-all flex items-center gap-2 shadow-md active:scale-95"
             >
               <Printer className="w-4 h-4 text-cyan-400" />

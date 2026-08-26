@@ -140,6 +140,29 @@ export default function RoomPage({ params }: RoomPageProps) {
   } | null>(null);
   const [showTestDrawer, setShowTestDrawer] = useState<boolean>(false);
 
+  // Verificar se a sala atual é estritamente a sala de teste (A7X9 ou DEMO)
+  const isTestRoom = useMemo(() => {
+    const cleanId = (roomId || '').trim().toUpperCase();
+    const cleanUuid = (roomUuid || '').trim().toUpperCase();
+    if (
+      cleanId === 'A7X9' ||
+      cleanId === 'DEMO' ||
+      cleanId === 'DEMO-ROOM-ID' ||
+      cleanUuid === 'A7X9' ||
+      cleanUuid === 'DEMO'
+    ) {
+      return true;
+    }
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const codeParam = (urlParams.get('code') || '').trim().toUpperCase();
+      if (codeParam === 'A7X9' || codeParam === 'DEMO') {
+        return true;
+      }
+    }
+    return false;
+  }, [roomId, roomUuid]);
+
   const { initAudio, playSiren, playEmergencyBuzzer, playTaskBeep, stopAll } = useGameAudio();
   const supabase = useMemo(() => createClient(), []);
 
@@ -315,6 +338,16 @@ export default function RoomPage({ params }: RoomPageProps) {
           if (Array.isArray(player.completed_tasks)) {
             setCompletedTasks(player.completed_tasks as string[]);
           }
+        } else if (isValidUuid(targetRoomUuid)) {
+          // Garantir cadastro do jogador na tabela room_players caso a sessão local exista
+          await supabase.from('room_players').upsert({
+            id: storedPlayerId,
+            room_id: targetRoomUuid,
+            player_name: storedPlayerName || 'Tripulante',
+            color_hex: storedPlayerColor || '#ef4444',
+            status: 'ALIVE',
+            completed_tasks: [],
+          });
         }
       }
 
@@ -581,6 +614,17 @@ export default function RoomPage({ params }: RoomPageProps) {
         });
       }
     },
+    onPlayerKicked: (payload) => {
+      const targetId = payload?.playerId || payload?.kickedId;
+      if (targetId && (targetId === playerId || targetId === (typeof window !== 'undefined' ? localStorage.getItem('current_player_id') : null))) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(`room_player_${roomId}`);
+          localStorage.removeItem('current_player_id');
+        }
+        alert('Você foi removido da sala pelo Host.');
+        window.location.href = '/';
+      }
+    },
   });
 
   // Escutar alterações diretas no banco de dados room_players para a eliminação do jogador
@@ -627,7 +671,37 @@ export default function RoomPage({ params }: RoomPageProps) {
           filter: `room_id=eq.${roomUuid}`,
         },
         (payload) => {
-          if (payload.eventType === 'UPDATE' && payload.new) {
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const inserted = payload.new as any;
+            setAllPlayers((prev) => {
+              if (prev.some((p) => p.id === inserted.id)) return prev;
+              return [
+                ...prev,
+                {
+                  id: inserted.id,
+                  nickname: inserted.player_name || 'Tripulante',
+                  color: inserted.color_hex || '#3b82f6',
+                  role: inserted.role || null,
+                  is_alive: inserted.status === 'ALIVE',
+                  is_host: false,
+                  completed_tasks: 0,
+                  total_tasks: taskCount,
+                  has_voted: false,
+                  voted_for_id: null,
+                },
+              ];
+            });
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            setAllPlayers((prev) => prev.filter((p) => p.id !== payload.old.id));
+            if (payload.old.id === playerId || payload.old.id === (typeof window !== 'undefined' ? localStorage.getItem('current_player_id') : null)) {
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem(`room_player_${roomId}`);
+                localStorage.removeItem('current_player_id');
+              }
+              alert('Você foi removido da sala pelo Host.');
+              window.location.href = '/';
+            }
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updated = payload.new as any;
             const tasksCount = Array.isArray(updated.completed_tasks)
               ? updated.completed_tasks.length
@@ -656,6 +730,18 @@ export default function RoomPage({ params }: RoomPageProps) {
       supabase.removeChannel(channel);
     };
   }, [roomUuid, supabase]);
+
+  // Função para o jogador sair voluntariamente da sala
+  const handleLeaveRoom = async () => {
+    if (playerId && isValidUuid(playerId)) {
+      await supabase.from('room_players').delete().eq('id', playerId);
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(`room_player_${roomId}`);
+      localStorage.removeItem('current_player_id');
+    }
+    window.location.href = '/';
+  };
 
   // Função para sortear novo impostor e reiniciar a partida
   const handleRestartGame = useCallback(
@@ -1359,9 +1445,19 @@ export default function RoomPage({ params }: RoomPageProps) {
               <Shield className="w-4 h-4 text-cyan-400" />
               <span>Among Us RP • #{roomId.substring(0, 4)}</span>
             </h1>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase animate-pulse">
-              Lobby de Espera
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleLeaveRoom}
+                className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-950/60 text-red-400 border border-red-500/40 uppercase hover:bg-red-900 active:scale-95 cursor-pointer flex items-center gap-1"
+              >
+                <X className="w-3 h-3" />
+                <span>SAIR</span>
+              </button>
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase animate-pulse">
+                Lobby de Espera
+              </span>
+            </div>
           </div>
 
           <ConnectionStatusHUD
@@ -1396,23 +1492,25 @@ export default function RoomPage({ params }: RoomPageProps) {
                 <span className="font-bold text-slate-200">{playerName}</span>
               </div>
             </div>
-            {/* Botões de Inicialização Rápida para Testes da Sala AX7X9 */}
-            <div className="pt-2 space-y-2">
-              <button
-                type="button"
-                onClick={() => startSandboxMatch('CREWMATE')}
-                className="w-full h-[52px] rounded-2xl btn-3d-green text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
-              >
-                <span>🚀 INICIAR TESTE COMO TRIPULANTE</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => startSandboxMatch('IMPOSTOR')}
-                className="w-full h-[46px] rounded-2xl btn-3d-red text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
-              >
-                <span>🔪 INICIAR TESTE COMO IMPOSTOR</span>
-              </button>
-            </div>
+            {/* Botões de Inicialização Rápida apenas para a Sala de Teste A7X9 */}
+            {isTestRoom && (
+              <div className="pt-2 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => startSandboxMatch('CREWMATE')}
+                  className="w-full h-[52px] rounded-2xl btn-3d-green text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
+                >
+                  <span>🚀 INICIAR TESTE COMO TRIPULANTE</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startSandboxMatch('IMPOSTOR')}
+                  className="w-full h-[46px] rounded-2xl btn-3d-red text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
+                >
+                  <span>🔪 INICIAR TESTE COMO IMPOSTOR</span>
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
@@ -1440,13 +1538,15 @@ export default function RoomPage({ params }: RoomPageProps) {
           </h1>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowTestDrawer(true)}
-              className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-purple-950/80 text-purple-300 border border-purple-500/80 shadow-md hover:bg-purple-900 active:scale-95 cursor-pointer flex items-center gap-1"
-            >
-              <span>🧪 TESTAR</span>
-            </button>
+            {isTestRoom && (
+              <button
+                type="button"
+                onClick={() => setShowTestDrawer(true)}
+                className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-purple-950/80 text-purple-300 border border-purple-500/80 shadow-md hover:bg-purple-900 active:scale-95 cursor-pointer flex items-center gap-1"
+              >
+                <span>🧪 TESTAR</span>
+              </button>
+            )}
 
             <div
               className={`px-3 py-1 rounded-full text-xs font-bold ${
@@ -2219,8 +2319,8 @@ export default function RoomPage({ params }: RoomPageProps) {
         </div>
       )}
 
-      {/* Modal de Gaveta de Testes / Sandbox (Sala AX7X9) */}
-      {showTestDrawer && (
+      {/* Modal de Gaveta de Testes / Sandbox (Exclusivo da Sala de Teste A7X9) */}
+      {isTestRoom && showTestDrawer && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 select-none animate-in fade-in">
           <div className="w-full max-w-sm bg-slate-900 border-4 border-purple-500 rounded-3xl p-5 shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
             <button

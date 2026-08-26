@@ -118,7 +118,7 @@ export const TaskQrReader: React.FC<TaskQrReaderProps> = ({
         setErrorMessage(null);
       })
       .catch((err) => {
-        console.error("Erro ao iniciar câmera com Html5Qrcode:", err);
+        console.warn("Aviso: Permissão da câmera negada ou câmera indisponível:", err?.message || err);
         setHasPermission(false);
         setErrorMessage("Não foi possível acessar a câmera do dispositivo.");
       });

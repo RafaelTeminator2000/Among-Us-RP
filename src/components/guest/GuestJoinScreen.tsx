@@ -69,6 +69,16 @@ export const GuestJoinScreen: React.FC<GuestJoinProps> = ({
           throw new Error("A partida nesta sala já foi iniciada ou encerrada.");
         }
 
+        // Limpar registros anteriores deste jogador em salas antigas antes de entrar na nova sala
+        const previousPlayerId = typeof window !== "undefined" ? localStorage.getItem("current_player_id") : null;
+        const isValidUuid = (str?: string) => typeof str === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+        if (previousPlayerId && isValidUuid(previousPlayerId)) {
+          await supabase.from("room_players").delete().eq("id", previousPlayerId);
+        }
+        if (cleanName) {
+          await supabase.from("room_players").delete().eq("player_name", cleanName).neq("room_id", room.id);
+        }
+
         // Inserir o jogador na tabela room_players do Supabase
         const { data: player, error: playerError } = await supabase
           .from("room_players")

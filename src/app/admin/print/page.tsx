@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   Printer,
@@ -176,6 +176,23 @@ const TACTICAL_CARDS: QrCardDefinition[] = [
 ];
 
 export default function QrPrintPage() {
+  const [returnUrl, setReturnUrl] = useState<string>('/admin');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const roomId = params.get('roomId') || localStorage.getItem('host_current_room_id');
+      const code = params.get('code') || localStorage.getItem('host_current_room_code');
+
+      if (roomId || code) {
+        const query = new URLSearchParams();
+        if (roomId) query.set('roomId', roomId);
+        if (code) query.set('code', code);
+        setReturnUrl(`/admin?${query.toString()}`);
+      }
+    }
+  }, []);
+
   const handlePrint = () => {
     window.print();
   };
@@ -186,7 +203,7 @@ export default function QrPrintPage() {
       <div className="max-w-5xl mx-auto mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 p-6 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-2xl print:hidden">
         <div>
           <Link
-            href="/admin"
+            href={returnUrl}
             className="text-xs font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 mb-2 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" /> Voltar ao Painel do Host

@@ -75,6 +75,7 @@ export interface UseRealtimeGameProps {
   onImpostorVictory?: (payload: { impostorName?: string; reason?: string; timestamp?: number }) => void;
   onRoomStatusChanged?: (newStatus: string) => void;
   onPlayersPresenceChanged?: (players: PresencePlayer[]) => void;
+  onPlayerKicked?: (payload: { playerId: string; kickedId?: string }) => void;
 }
 
 
@@ -99,6 +100,7 @@ export function useRealtimeGame({
   onImpostorVictory,
   onRoomStatusChanged,
   onPlayersPresenceChanged,
+  onPlayerKicked,
 }: UseRealtimeGameProps) {
   const [connectionState, setConnectionState] = useState<RealtimeConnectionState>('CONNECTING');
   const [latency, setLatency] = useState<number | null>(14);
@@ -139,6 +141,7 @@ export function useRealtimeGame({
     onImpostorVictory,
     onRoomStatusChanged,
     onPlayersPresenceChanged,
+    onPlayerKicked,
   };
 
   const playerRef = useRef({ playerId, playerName, playerColor, playerRole, isAlive });
@@ -367,6 +370,12 @@ export function useRealtimeGame({
         .on('broadcast', { event: 'VOTING_FINISHED' }, (payload) => {
           if (callbacksRef.current.onVotingFinished) callbacksRef.current.onVotingFinished(payload.payload);
         })
+        .on('broadcast', { event: 'PLAYER_KICKED' }, (payload) => {
+          if (callbacksRef.current.onPlayerKicked) callbacksRef.current.onPlayerKicked(payload.payload);
+        })
+        .on('broadcast', { event: 'player_kicked' }, (payload) => {
+          if (callbacksRef.current.onPlayerKicked) callbacksRef.current.onPlayerKicked(payload.payload);
+        })
         .on('broadcast', { event: 'ping_check' }, (payload) => {
           if (payload.payload?.timestamp && isMounted) {
             const rtt = Math.max(1, Math.round(performance.now() - payload.payload.timestamp));
@@ -398,8 +407,24 @@ export function useRealtimeGame({
           const activePlayers: PresencePlayer[] = [];
 
           Object.values(state).forEach((presences) => {
-            presences.forEach((p) => {
-              if (p) activePlayers.push(p);
+            presences.forEach((p: any) => {
+              if (!p) return;
+              const pid = (p.id || p.playerId || '').toString();
+              const pName = (p.name || p.player_name || p.playerName || '').toString().toLowerCase();
+
+              // Ignorar presenças de sistema (Telão da TV e Console do Host)
+              if (
+                pid.startsWith('tv_') ||
+                pid.startsWith('host_') ||
+                pName.includes('telão central') ||
+                pName.includes('telao central') ||
+                pName.includes('tv') ||
+                p.is_system === true
+              ) {
+                return;
+              }
+
+              activePlayers.push(p);
             });
           });
 
