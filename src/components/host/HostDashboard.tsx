@@ -695,7 +695,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
             </Link>
 
             <Link
-              href="/admin/print"
+              href={`/admin/print?roomId=${encodeURIComponent(roomId)}&code=${encodeURIComponent(roomCode)}`}
               className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-400 transition-all flex items-center justify-center shadow-md cursor-pointer"
               title="Imprimir Folha de QR Codes"
             >
@@ -1053,7 +1053,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
 
             {/* Ação Secundária: Imprimir Folha de QR Codes */}
             <Link
-              href="/admin/print"
+              href={`/admin/print?roomId=${encodeURIComponent(roomId)}&code=${encodeURIComponent(roomCode)}`}
               className="w-full h-[50px] rounded-2xl btn-3d-amber flex items-center justify-center gap-2 text-sm font-black uppercase cursor-pointer"
             >
               <Printer className="w-4 h-4" />

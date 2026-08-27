@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   Printer,
@@ -24,7 +24,9 @@ import {
   FlaskConical,
   UploadCloud,
   LucideIcon,
+  Loader2,
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 interface QrCardDefinition {
@@ -175,23 +177,35 @@ const TACTICAL_CARDS: QrCardDefinition[] = [
   },
 ];
 
-export default function QrPrintPage() {
-  const [returnUrl, setReturnUrl] = useState<string>('/admin');
+function QrPrintContent() {
+  const searchParams = useSearchParams();
+  const paramRoomId = searchParams.get('roomId');
+  const paramCode = searchParams.get('code');
+
+  const [returnUrl, setReturnUrl] = useState<string>(() => {
+    const roomId = paramRoomId || (typeof window !== 'undefined' ? localStorage.getItem('host_current_room_id') : null);
+    const code = paramCode || (typeof window !== 'undefined' ? localStorage.getItem('host_current_room_code') : null);
+
+    if (roomId || code) {
+      const query = new URLSearchParams();
+      if (roomId) query.set('roomId', roomId);
+      if (code) query.set('code', code);
+      return `/admin?${query.toString()}`;
+    }
+    return '/admin';
+  });
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const roomId = params.get('roomId') || localStorage.getItem('host_current_room_id');
-      const code = params.get('code') || localStorage.getItem('host_current_room_code');
+    const roomId = paramRoomId || (typeof window !== 'undefined' ? localStorage.getItem('host_current_room_id') : null);
+    const code = paramCode || (typeof window !== 'undefined' ? localStorage.getItem('host_current_room_code') : null);
 
-      if (roomId || code) {
-        const query = new URLSearchParams();
-        if (roomId) query.set('roomId', roomId);
-        if (code) query.set('code', code);
-        setReturnUrl(`/admin?${query.toString()}`);
-      }
+    if (roomId || code) {
+      const query = new URLSearchParams();
+      if (roomId) query.set('roomId', roomId);
+      if (code) query.set('code', code);
+      setReturnUrl(`/admin?${query.toString()}`);
     }
-  }, []);
+  }, [paramRoomId, paramCode]);
 
   const handlePrint = () => {
     window.print();
@@ -339,6 +353,20 @@ export default function QrPrintPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function QrPrintPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+        </div>
+      }
+    >
+      <QrPrintContent />
+    </Suspense>
   );
 }
 

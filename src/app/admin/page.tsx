@@ -1,32 +1,48 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { HostDashboard } from '@/components/host/HostDashboard';
 import { GridMapBuilder } from '@/components/admin/GridMapBuilder';
 import Link from 'next/link';
-import { Printer, Layers, Crown, Shield } from 'lucide-react';
+import { Printer, Layers, Crown, Shield, Loader2 } from 'lucide-react';
 
-export default function AdminDashboardPage() {
+function AdminDashboardContent() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<'lobby' | 'map'>('lobby');
-  const [roomId, setRoomId] = useState<string>('demo-room-id');
-  const [roomCode, setRoomCode] = useState<string>('A7X9');
+
+  const paramRoomId = searchParams.get('roomId');
+  const paramCode = searchParams.get('code');
+
+  const [roomId, setRoomId] = useState<string>(() => {
+    if (paramRoomId) return paramRoomId;
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('host_current_room_id') || 'demo-room-id';
+    }
+    return 'demo-room-id';
+  });
+
+  const [roomCode, setRoomCode] = useState<string>(() => {
+    if (paramCode) return paramCode;
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('host_current_room_code') || 'A7X9';
+    }
+    return 'A7X9';
+  });
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const paramRoomId = params.get('roomId') || localStorage.getItem('host_current_room_id');
-      const paramCode = params.get('code') || localStorage.getItem('host_current_room_code');
+    const currentRoomId = paramRoomId || (typeof window !== 'undefined' ? localStorage.getItem('host_current_room_id') : null);
+    const currentCode = paramCode || (typeof window !== 'undefined' ? localStorage.getItem('host_current_room_code') : null);
 
-      if (paramRoomId) {
-        setRoomId(paramRoomId);
-        localStorage.setItem('host_current_room_id', paramRoomId);
-      }
-      if (paramCode) {
-        setRoomCode(paramCode);
-        localStorage.setItem('host_current_room_code', paramCode);
-      }
+    if (currentRoomId && currentRoomId !== roomId) {
+      setRoomId(currentRoomId);
+      if (typeof window !== 'undefined') localStorage.setItem('host_current_room_id', currentRoomId);
     }
-  }, []);
+    if (currentCode && currentCode !== roomCode) {
+      setRoomCode(currentCode);
+      if (typeof window !== 'undefined') localStorage.setItem('host_current_room_code', currentCode);
+    }
+  }, [paramRoomId, paramCode, roomId, roomCode]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 antialiased font-sans">
@@ -79,13 +95,27 @@ export default function AdminDashboardPage() {
           </div>
         </header>
 
-        {/* Conteúdo Dinâmico por Aba */}
+        {/* Conteúdo Dinâmico por Aba com key única para forçar re-render limpo ao mudar de sala */}
         {activeTab === 'lobby' ? (
-          <HostDashboard roomId={roomId} roomCode={roomCode} />
+          <HostDashboard key={`${roomId}_${roomCode}`} roomId={roomId} roomCode={roomCode} />
         ) : (
-          <GridMapBuilder roomId={roomId} />
+          <GridMapBuilder key={`map_${roomId}`} roomId={roomId} />
         )}
       </div>
     </div>
+  );
+}
+
+export default function AdminDashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+        </div>
+      }
+    >
+      <AdminDashboardContent />
+    </Suspense>
   );
 }
