@@ -240,18 +240,31 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
       const cleanCode = (roomCode || roomId || "").trim().toUpperCase();
       let resolvedUuid = isUuid(roomId) ? roomId : null;
 
-      // 1. Buscar status atual da sala no banco de dados por UUID ou CODE de 4 dígitos
-      let roomQuery = supabase.from("rooms").select("id, status, rules");
+      // 1. Buscar status atual da sala no banco de dados por UUID ou CODE de 4 dígitos (ordenando por mais recente)
+      let roomQuery = supabase.from("rooms").select("id, status, rules, created_at");
       if (resolvedUuid) {
         roomQuery = roomQuery.eq("id", resolvedUuid);
       } else if (cleanCode) {
-        roomQuery = roomQuery.eq("code", cleanCode);
+        roomQuery = roomQuery.eq("code", cleanCode).order("created_at", { ascending: false }).limit(1);
       }
 
-      const { data: roomData } = await roomQuery.maybeSingle();
+      const { data: roomData, error: roomError } = await roomQuery.maybeSingle();
 
       if (roomData) {
         resolvedUuid = roomData.id;
+
+        if (typeof window !== "undefined" && resolvedUuid) {
+          localStorage.setItem("host_current_room_id", resolvedUuid);
+          if (cleanCode) localStorage.setItem("host_current_room_code", cleanCode);
+          try {
+            const currentUrl = new URL(window.location.href);
+            if (currentUrl.searchParams.get("roomId") !== resolvedUuid) {
+              currentUrl.searchParams.set("roomId", resolvedUuid);
+              if (cleanCode) currentUrl.searchParams.set("code", cleanCode);
+              window.history.replaceState(null, "", currentUrl.toString());
+            }
+          } catch {}
+        }
 
         if (roomData.status === "PLAYING" || roomData.status === "EMERGENCY_MEETING") {
           setIsGameRunning(true);
@@ -281,8 +294,33 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
 
         if (playersError) {
           console.error("Erro ao buscar jogadores do Supabase:", playersError.message || playersError);
-        } else if (playersData) {
-          setPlayers(playersData as Player[]);
+        } else if (playersData && playersData.length > 0) {
+          setPlayers((prev) => {
+            const map = new Map<string, Player>();
+            playersData.forEach((p) => map.set(p.id, p as Player));
+            prev.forEach((p) => {
+              if (!map.has(p.id)) {
+                map.set(p.id, p);
+              } else {
+                const existing = map.get(p.id)!;
+                map.set(p.id, {
+                  ...existing,
+                  role: existing.role || p.role || null,
+                  completed_tasks: p.completed_tasks ?? existing.completed_tasks,
+                });
+              }
+            });
+            return Array.from(map.values()).filter((p) => {
+              const name = (p.player_name || "").toLowerCase();
+              const id = (p.id || "").toString();
+              return (
+                !id.startsWith("tv_") &&
+                !id.startsWith("host_") &&
+                !name.includes("telão central") &&
+                !name.includes("telao central")
+              );
+            });
+          });
         }
       } else if (initialPlayers && initialPlayers.length > 0) {
         setPlayers(initialPlayers);

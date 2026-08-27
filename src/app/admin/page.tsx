@@ -42,6 +42,17 @@ function AdminDashboardContent() {
       setRoomCode(currentCode);
       if (typeof window !== 'undefined') localStorage.setItem('host_current_room_code', currentCode);
     }
+
+    if (typeof window !== 'undefined' && currentRoomId && currentCode) {
+      try {
+        const currentUrl = new URL(window.location.href);
+        if (currentUrl.searchParams.get('roomId') !== currentRoomId || currentUrl.searchParams.get('code') !== currentCode) {
+          currentUrl.searchParams.set('roomId', currentRoomId);
+          currentUrl.searchParams.set('code', currentCode);
+          window.history.replaceState(null, '', currentUrl.toString());
+        }
+      } catch {}
+    }
   }, [paramRoomId, paramCode, roomId, roomCode]);
 
   return (
