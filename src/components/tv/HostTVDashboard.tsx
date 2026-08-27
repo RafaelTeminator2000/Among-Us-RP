@@ -22,6 +22,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [gameEvents, setGameEvents] = useState<GameEventRecord[]>([]);
   const [displayCode, setDisplayCode] = useState<string>(propRoomCode || roomId.substring(0, 4).toUpperCase());
+  const [winnerTeam, setWinnerTeam] = useState<'CREWMATE' | 'IMPOSTOR' | null>(null);
 
   const { initAudio, playSiren, playEmergencyBuzzer, stopAll } = useGameAudio();
   const supabase = createClient();
@@ -157,10 +158,12 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     onRoomStatusChanged: (newStatus) => {
       setGameState(newStatus as any);
     },
-    onCrewmateVictory: () => {
+    onCrewmateVictory: (payload) => {
+      setWinnerTeam('CREWMATE');
       setGameState('ENDED');
     },
-    onImpostorVictory: () => {
+    onImpostorVictory: (payload) => {
+      setWinnerTeam('IMPOSTOR');
       setGameState('ENDED');
     },
     onSabotageTriggered: (payload) => {
@@ -345,26 +348,32 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
   // Se o jogo estiver finalizado, renderizar o Painel de Estatísticas Finais pós-jogo
   if (gameState === 'ENDED' || gameState === 'FINISHED') {
     const impostorsAlive = players.filter((p) => p.role === 'IMPOSTOR' && p.is_alive).length;
-    const winnerTeam = impostorsAlive > 0 ? 'IMPOSTOR' : 'CREWMATE';
+    const finalWinnerTeam = winnerTeam || (impostorsAlive > 0 ? 'IMPOSTOR' : 'CREWMATE');
 
     return (
       <GameSummaryPanel
         roomId={roomId}
         players={players}
         events={gameEvents}
-        winnerTeam={winnerTeam}
-        onReturnToLobby={() => setGameState('LOBBY')}
+        winnerTeam={finalWinnerTeam}
+        onReturnToLobby={() => {
+          setWinnerTeam(null);
+          setGameState('LOBBY');
+        }}
       />
     );
   }
 
-  // Recálculo dinâmico anti-deadlock de tarefas considerando APENAS tripulantes vivos
+  // Recálculo dinâmico de tarefas considerando APENAS tripulantes (denominador fixo pela contagem total)
   const alivePlayers = players.filter((p) => p.is_alive);
   const crewmates = players.filter((p) => p.role !== 'IMPOSTOR');
   const aliveCrewmates = crewmates.filter((p) => p.is_alive);
-  const crewmateCount = aliveCrewmates.length > 0 ? aliveCrewmates.length : (crewmates.length > 0 ? crewmates.length : Math.max(1, players.length));
-  const totalTasks = Math.max(1, crewmateCount * taskCount);
-  const completedTasks = aliveCrewmates.reduce((acc, curr) => acc + (curr.completed_tasks || 0), 0);
+  const totalCrewmates = crewmates.length > 0 ? crewmates.length : Math.max(1, players.length);
+  const totalTasks = Math.max(1, totalCrewmates * taskCount);
+  const completedTasks = crewmates.reduce((acc, curr) => {
+    const count = typeof curr.completed_tasks === 'number' ? curr.completed_tasks : 0;
+    return acc + count;
+  }, 0);
   const taskProgress = Math.min(100, Math.round((completedTasks / totalTasks) * 100));
 
   return (

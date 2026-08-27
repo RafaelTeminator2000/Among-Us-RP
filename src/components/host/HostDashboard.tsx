@@ -103,11 +103,8 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
 
   // Recálculo dinâmico do progresso global de tarefas considerando APENAS tripulantes (desconsidera Impostores)
   const crewmates = players.filter((p) => p.role !== "IMPOSTOR");
-  const aliveCrewmates = crewmates.filter((p) => p.status === "ALIVE" || (p as any).is_alive !== false);
-  const crewmateCount = aliveCrewmates.length > 0
-    ? aliveCrewmates.length
-    : (crewmates.length > 0 ? crewmates.length : Math.max(1, players.length));
-  const totalRoomTasks = Math.max(1, crewmateCount * taskCount);
+  const totalCrewmateCount = crewmates.length > 0 ? crewmates.length : Math.max(1, players.length);
+  const totalRoomTasks = Math.max(1, totalCrewmateCount * taskCount);
   const totalCompletedTasks = crewmates.reduce((acc, p) => {
     let count = 0;
     if (Array.isArray(p.completed_tasks)) {
@@ -293,21 +290,18 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         setPlayers((prev) => {
           const mergedMap = new Map<string, Player>();
           prev.forEach((player) => {
-            // Manter se for bot ou se estiver no Presence ativo
-            if (player.id.startsWith("bot_")) {
-              mergedMap.set(player.id, player);
-            } else if (activePresencePlayersMap.has(player.id)) {
+            if (activePresencePlayersMap.has(player.id)) {
               const pres = activePresencePlayersMap.get(player.id)!;
               mergedMap.set(player.id, {
+                ...player,
                 ...pres,
                 role: pres.role || player.role || null,
                 completed_tasks: player.completed_tasks ?? pres.completed_tasks,
               });
-            } else if (isGameRunning) {
-              // Se em jogo, manter jogador (pode ter sido desconectado temporariamente)
+            } else {
+              // Manter jogadores cadastrados para evitar desconexões acidentais por instabilidade de rede no lobby
               mergedMap.set(player.id, player);
             }
-            // Se no Lobby e não está no Presence nem é bot, é removido!
           });
 
           // Adicionar novos jogadores do Presence

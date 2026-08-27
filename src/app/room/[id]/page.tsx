@@ -930,73 +930,82 @@ export default function RoomPage({ params }: RoomPageProps) {
           setPlayerStatus('ELIMINATED');
         }
 
-        const updatedPlayers = allPlayers.map((p) =>
-          p.id === result.ejectedPlayerId ? { ...p, is_alive: false } : p
-        );
-        setAllPlayers(updatedPlayers);
+        setAllPlayers((prev) => {
+          const updatedPlayers = prev.map((p) =>
+            p.id === result.ejectedPlayerId ? { ...p, is_alive: false } : p
+          );
 
-        const alivePlayers = updatedPlayers.filter((p) => p.is_alive !== false);
-        const aliveImpostors = alivePlayers.filter((p) => p.role === 'IMPOSTOR').length;
-        const aliveCrewmates = alivePlayers.filter((p) => p.role !== 'IMPOSTOR').length;
+          const alivePlayers = updatedPlayers.filter((p) => p.is_alive !== false);
+          const aliveImpostors = alivePlayers.filter(
+            (p) => (rolesMap[p.id] || p.role) === 'IMPOSTOR'
+          ).length;
+          const aliveCrewmates = alivePlayers.filter(
+            (p) => (rolesMap[p.id] || p.role) !== 'IMPOSTOR'
+          ).length;
 
-        if (aliveImpostors === 0) {
-          const impName = result.ejectedPlayerName || 'O Impostor';
-          playTaskBeep();
-          setRoomStatus('FINISHED');
+          // Se todos os impostores foram eliminados (ou se o único impostor foi ejetado)
+          if (aliveImpostors === 0 && (result.isImpostor || Object.keys(rolesMap).length > 0)) {
+            const impName = result.ejectedPlayerName || 'O Impostor';
+            playTaskBeep();
+            setRoomStatus('FINISHED');
 
-          setVictoryModal((prev) => {
-            if (prev) return prev;
-            return {
-              winnerTeam: 'CREWMATE',
+            setVictoryModal((prevModal) => {
+              if (prevModal) return prevModal;
+              return {
+                winnerTeam: 'CREWMATE',
+                impostorName: impName,
+                countdown: 5,
+                reason: `${impName} foi ejetado da nave! A tripulação venceu.`,
+              };
+            });
+
+            broadcastEvent('CREWMATE_VICTORY', {
               impostorName: impName,
-              countdown: 5,
-            };
-          });
+              ejectedPlayerId: result.ejectedPlayerId,
+              timestamp: Date.now(),
+            }).catch(() => {});
+          } else if (aliveImpostors > 0 && aliveImpostors >= aliveCrewmates) {
+            playEmergencyBuzzer();
+            setRoomStatus('FINISHED');
+            const reasonMsg = result.isImpostor
+              ? 'Apesar do ejetamento, os impostores restantes dominaram a nave!'
+              : `${result.ejectedPlayerName || 'Tripulante'} foi ejetado e os Impostores dominaram a nave!`;
 
-          broadcastEvent('CREWMATE_VICTORY', {
-            impostorName: impName,
-            ejectedPlayerId: result.ejectedPlayerId,
-            timestamp: Date.now(),
-          }).catch(() => {});
-        } else if (aliveImpostors >= aliveCrewmates) {
-          playEmergencyBuzzer();
-          setRoomStatus('FINISHED');
-          const reasonMsg = result.isImpostor
-            ? 'Apesar do ejetamento, os impostores restantes dominaram a nave!'
-            : `${result.ejectedPlayerName || 'Tripulante'} foi ejetado e os Impostores dominaram a nave!`;
+            setVictoryModal((prevModal) => {
+              if (prevModal) return prevModal;
+              return {
+                winnerTeam: 'IMPOSTOR',
+                impostorName: 'Os Impostores',
+                countdown: 5,
+                reason: reasonMsg,
+              };
+            });
 
-          setVictoryModal((prev) => {
-            if (prev) return prev;
-            return {
+            broadcastEvent('IMPOSTOR_VICTORY', {
               winnerTeam: 'IMPOSTOR',
-              impostorName: 'Os Impostores',
-              countdown: 5,
-              reason: reasonMsg,
-            };
-          });
-
-          broadcastEvent('IMPOSTOR_VICTORY', {
-            winnerTeam: 'IMPOSTOR',
-            reason: 'IMPOSTOR_DOMINANCE',
-            timestamp: Date.now(),
-          }).catch(() => {});
-        } else {
-          setRoomStatus('PLAYING');
-          const ejectedName = result.ejectedPlayerName || 'Jogador';
-          if (result.isImpostor) {
-            setTaskFeedback(`⚠️ ${ejectedName} ERA um Impostor! A partida continua.`);
+              reason: 'IMPOSTOR_DOMINANCE',
+              timestamp: Date.now(),
+            }).catch(() => {});
           } else {
-            setTaskFeedback(`⚠️ ${ejectedName} NÃO era o Impostor! A partida continua.`);
+            setRoomStatus('PLAYING');
+            const ejectedName = result.ejectedPlayerName || 'Jogador';
+            if (result.isImpostor) {
+              setTaskFeedback(`⚠️ ${ejectedName} ERA um Impostor! A partida continua.`);
+            } else {
+              setTaskFeedback(`⚠️ ${ejectedName} NÃO era o Impostor! A partida continua.`);
+            }
+            setTimeout(() => setTaskFeedback(null), 5000);
           }
-          setTimeout(() => setTaskFeedback(null), 5000);
-        }
+
+          return updatedPlayers;
+        });
       } else {
         setRoomStatus('PLAYING');
         setTaskFeedback('⚖️ Ninguém foi ejetado da nave. A partida continua.');
         setTimeout(() => setTaskFeedback(null), 4000);
       }
     },
-    [playerId, stopAll, playTaskBeep, broadcastEvent]
+    [playerId, stopAll, playTaskBeep, playEmergencyBuzzer, broadcastEvent, rolesMap]
   );
 
   // Countdown automático para retorno ao lobby após vitória dos tripulantes
@@ -1014,7 +1023,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
   }, [victoryModal, handleReturnToLobby]);
 
-  // Lista memoizada de jogadores para a tela de votação (evita recriação desnecessária de array)
+  // Lista memoizada de jogadores para a tela de votação (evita vazamento de papéis secretos)
   const formattedConnectedPlayers = useMemo(() => {
     if (allPlayers.length === 0) return undefined;
     return allPlayers.map((p) => ({
@@ -1022,9 +1031,9 @@ export default function RoomPage({ params }: RoomPageProps) {
       player_name: p.nickname || 'Tripulante',
       color_hex: p.color || '#3b82f6',
       status: (p.is_alive !== false ? 'ALIVE' : 'ELIMINATED') as 'ALIVE' | 'ELIMINATED',
-      role: p.role || rolesMap[p.id] || (p.id === playerId ? playerRole : undefined),
+      role: p.id === playerId ? playerRole : (roomStatus === 'FINISHED' ? (p.role || rolesMap[p.id]) : undefined),
     }));
-  }, [allPlayers, rolesMap, playerId, playerRole]);
+  }, [allPlayers, rolesMap, playerId, playerRole, roomStatus]);
 
   // Disparar Sabotagem de Luzes pelo Impostor
   const handleTriggerLightsSabotage = async () => {
@@ -1335,11 +1344,10 @@ export default function RoomPage({ params }: RoomPageProps) {
     return count;
   };
 
-  // Calcular progresso de tarefas da equipe (apenas Tripulantes)
-  const crewmates = allPlayers.filter((p) => p.role !== 'IMPOSTOR');
-  const aliveCrewmates = crewmates.filter((p) => p.is_alive);
-  const crewmateCount = aliveCrewmates.length > 0 ? aliveCrewmates.length : (crewmates.length > 0 ? crewmates.length : Math.max(1, allPlayers.length));
-  const totalTasksCount = Math.max(1, crewmateCount * taskCount);
+  // Calcular progresso de tarefas da equipe (apenas Tripulantes - denominador fixo pela contagem total)
+  const crewmates = allPlayers.filter((p) => (rolesMap[p.id] || p.role) !== 'IMPOSTOR');
+  const totalCrewmatesCount = crewmates.length > 0 ? crewmates.length : Math.max(1, allPlayers.length);
+  const totalTasksCount = Math.max(1, totalCrewmatesCount * taskCount);
   const myCompletedCount = completedTasks.length;
   const globalCompletedCount = crewmates.length > 0
     ? crewmates.reduce((acc, curr) => acc + getPlayerTaskCount(curr, curr.id === playerId), 0)

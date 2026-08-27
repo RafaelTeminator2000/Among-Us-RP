@@ -158,7 +158,6 @@ export function useRealtimeGame({
         name: playerName || 'Tripulante',
         player_name: playerName || 'Tripulante',
         color_hex: playerColor || '#ef4444',
-        role: playerRole,
         is_alive: isAlive,
         online_at: new Date().toISOString(),
       };
@@ -170,7 +169,7 @@ export function useRealtimeGame({
         payload: presencePayload,
       }).catch(() => {});
     }
-  }, [playerId, playerName, playerColor, playerRole, isAlive, connectionState]);
+  }, [playerId, playerName, playerColor, isAlive, connectionState]);
 
 
   // Função genérica de envio de broadcast com validação de canal
@@ -467,7 +466,6 @@ export function useRealtimeGame({
               name: playerRef.current.playerName || 'Tripulante',
               player_name: playerRef.current.playerName || 'Tripulante',
               color_hex: playerRef.current.playerColor || '#ef4444',
-              role: playerRef.current.playerRole,
               is_alive: playerRef.current.isAlive,
               online_at: new Date().toISOString(),
             };
