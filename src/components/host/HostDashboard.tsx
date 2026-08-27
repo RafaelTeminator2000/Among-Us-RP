@@ -81,7 +81,20 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
     }
     return false;
   });
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const startedAtStr =
+        localStorage.getItem(`host_room_started_at_${roomId}`) ||
+        localStorage.getItem(`host_room_started_at_${roomCode}`);
+      if (startedAtStr) {
+        const startedAt = Number(startedAtStr);
+        if (!isNaN(startedAt) && startedAt > 0) {
+          return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        }
+      }
+    }
+    return 0;
+  });
   const [globalTaskProgress, setGlobalTaskProgress] = useState<number>(0);
   const [actionLogs, setActionLogs] = useState<string[]>([
     "Host abriu o lobby presencial.",
@@ -137,6 +150,10 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         localStorage.removeItem("host_current_room_code");
         localStorage.removeItem(`room_roles_${roomId}`);
         localStorage.removeItem(`room_roles_${roomCode}`);
+        localStorage.removeItem(`host_room_status_${roomId}`);
+        localStorage.removeItem(`host_room_status_${roomCode}`);
+        localStorage.removeItem(`host_room_started_at_${roomId}`);
+        localStorage.removeItem(`host_room_started_at_${roomCode}`);
       }
 
       window.location.href = "/";
@@ -146,18 +163,38 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
     }
   };
 
-  // Cronômetro da partida quando em jogo
+  // Cronômetro da partida quando em jogo (persistente por timestamp real)
   useEffect(() => {
     let interval: any = null;
+
     if (isGameRunning) {
-      interval = setInterval(() => {
+      const updateElapsed = () => {
+        if (typeof window !== "undefined") {
+          const startedAtStr =
+            localStorage.getItem(`host_room_started_at_${roomId}`) ||
+            localStorage.getItem(`host_room_started_at_${roomCode}`);
+          if (startedAtStr) {
+            const startedAt = Number(startedAtStr);
+            if (!isNaN(startedAt) && startedAt > 0) {
+              const calculated = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+              setElapsedSeconds(calculated);
+              return;
+            }
+          }
+        }
         setElapsedSeconds((prev) => prev + 1);
-      }, 1000);
+      };
+
+      updateElapsed();
+      interval = setInterval(updateElapsed, 1000);
+    } else {
+      setElapsedSeconds(0);
     }
+
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isGameRunning]);
+  }, [isGameRunning, roomId, roomCode]);
 
   // Recálculo dinâmico do progresso global de tarefas considerando APENAS tripulantes (desconsidera Impostores)
   const crewmates = players.filter((p) => p.role !== "IMPOSTOR");
@@ -307,6 +344,18 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           if (rules.task_count || rules.taskCount) setTaskCount(Number(rules.task_count || rules.taskCount));
           if (rules.discussion_time || rules.discussionTime) setDiscussionTime(Number(rules.discussion_time || rules.discussionTime));
           if (rules.voting_time || rules.votingTime) setVotingTime(Number(rules.voting_time || rules.votingTime));
+
+          if (rules.started_at && typeof window !== "undefined") {
+            const startedAt = Number(rules.started_at);
+            if (!isNaN(startedAt) && startedAt > 0) {
+              if (!localStorage.getItem(`host_room_started_at_${resolvedUuid}`)) {
+                localStorage.setItem(`host_room_started_at_${resolvedUuid}`, String(startedAt));
+              }
+              if (cleanCode && !localStorage.getItem(`host_room_started_at_${cleanCode}`)) {
+                localStorage.setItem(`host_room_started_at_${cleanCode}`, String(startedAt));
+              }
+            }
+          }
         }
       }
 
@@ -617,6 +666,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
       );
 
       // Persistir status e regras tanto via Server Action quanto localmente
+      const startTime = Date.now();
       const rulesPayload = {
         kill_cooldown: killCooldown,
         killCooldown,
@@ -632,12 +682,16 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         confirmEjections,
         anonymous_votes: anonymousVotes,
         anonymousVotes,
+        started_at: startTime,
       };
 
       if (typeof window !== "undefined") {
         localStorage.setItem(`host_room_status_${roomId}`, "PLAYING");
         if (roomCode) localStorage.setItem(`host_room_status_${roomCode}`, "PLAYING");
+        localStorage.setItem(`host_room_started_at_${roomId}`, String(startTime));
+        if (roomCode) localStorage.setItem(`host_room_started_at_${roomCode}`, String(startTime));
       }
+      setElapsedSeconds(0);
 
       // Executar Server Action para atualizar o banco mesmo sem autenticação do host
       startGameAction({
@@ -1399,8 +1453,11 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
                 if (typeof window !== "undefined") {
                   localStorage.setItem(`host_room_status_${roomId}`, "LOBBY");
                   if (roomCode) localStorage.setItem(`host_room_status_${roomCode}`, "LOBBY");
+                  localStorage.removeItem(`host_room_started_at_${roomId}`);
+                  localStorage.removeItem(`host_room_started_at_${roomCode}`);
                 }
                 updateRoomStatusAction(roomId, "LOBBY").catch(() => {});
+                setElapsedSeconds(0);
                 setIsGameRunning(false);
                 setActiveTab("LOBBY");
                 setActionLogs((prev) => ["Partida retornada ao lobby pelo host.", ...prev]);
