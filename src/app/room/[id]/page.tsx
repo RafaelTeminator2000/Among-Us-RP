@@ -139,6 +139,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     role: 'CREWMATE' | 'IMPOSTOR';
   } | null>(null);
   const [showTestDrawer, setShowTestDrawer] = useState<boolean>(false);
+  const [isRoomClosed, setIsRoomClosed] = useState<boolean>(false);
 
   // Verificar se a sala atual é estritamente a sala de teste (A7X9 ou DEMO)
   const isTestRoom = useMemo(() => {
@@ -624,6 +625,18 @@ export default function RoomPage({ params }: RoomPageProps) {
         alert('Você foi removido da sala pelo Host.');
         window.location.href = '/';
       }
+    },
+    onRoomClosed: () => {
+      stopAll();
+      setIsRoomClosed(true);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(`room_player_${roomId}`);
+        localStorage.removeItem('current_player_id');
+        localStorage.removeItem(`room_roles_${roomId}`);
+      }
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 3500);
     },
   });
 
@@ -1379,6 +1392,39 @@ export default function RoomPage({ params }: RoomPageProps) {
       }).catch(() => {});
     }
   }, [progressPercentage, roomStatus, victoryModal, stopAll, playTaskBeep, broadcastEvent]);
+
+  // Se a sala tiver sido encerrada definitivamente pelo Host
+  if (isRoomClosed) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center justify-center font-sans select-none text-center animate-in fade-in">
+        <div className="w-full max-w-sm bg-slate-900 border-2 border-red-500/80 rounded-3xl p-8 shadow-2xl space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-red-500/20 border-2 border-red-500 flex items-center justify-center text-red-400 mx-auto animate-pulse">
+            <AlertTriangle className="w-8 h-8" />
+          </div>
+          <div>
+            <h2
+              style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
+              className="text-2xl uppercase tracking-wider text-white"
+            >
+              SALA ENCERRADA
+            </h2>
+            <p className="text-xs text-slate-400 mt-2">
+              A partida foi encerrada pelo Diretor / Host. Obrigado por jogar!
+            </p>
+          </div>
+          <div className="pt-4">
+            <button
+              type="button"
+              onClick={() => { window.location.href = '/'; }}
+              className="w-full py-3.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-950/50 cursor-pointer active:scale-95 transition-all"
+            >
+              Voltar à Tela Inicial
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Se o jogador estiver eliminado, exibe a tela de morte sem fantasmas (apenas se a partida continuar e não houver modal de vitória)
   if (playerStatus === 'ELIMINATED' && roomStatus !== 'EMERGENCY_MEETING' && roomStatus !== 'LOBBY' && roomStatus !== 'FINISHED' && !victoryModal) {

@@ -76,6 +76,7 @@ export interface UseRealtimeGameProps {
   onRoomStatusChanged?: (newStatus: string) => void;
   onPlayersPresenceChanged?: (players: PresencePlayer[]) => void;
   onPlayerKicked?: (payload: { playerId: string; kickedId?: string }) => void;
+  onRoomClosed?: (payload: { reason?: string }) => void;
 }
 
 
@@ -101,6 +102,7 @@ export function useRealtimeGame({
   onRoomStatusChanged,
   onPlayersPresenceChanged,
   onPlayerKicked,
+  onRoomClosed,
 }: UseRealtimeGameProps) {
   const [connectionState, setConnectionState] = useState<RealtimeConnectionState>('CONNECTING');
   const [latency, setLatency] = useState<number | null>(14);
@@ -126,6 +128,7 @@ export function useRealtimeGame({
     onRoomStatusChanged,
     onPlayersPresenceChanged,
     onPlayerKicked,
+    onRoomClosed,
   });
 
   callbacksRef.current = {
@@ -143,6 +146,7 @@ export function useRealtimeGame({
     onRoomStatusChanged,
     onPlayersPresenceChanged,
     onPlayerKicked,
+    onRoomClosed,
   };
 
   const playerRef = useRef({ playerId, playerName, playerColor, playerRole, isAlive });
@@ -376,6 +380,12 @@ export function useRealtimeGame({
         .on('broadcast', { event: 'player_kicked' }, (payload) => {
           if (callbacksRef.current.onPlayerKicked) callbacksRef.current.onPlayerKicked(payload.payload);
         })
+        .on('broadcast', { event: 'ROOM_CLOSED' }, (payload) => {
+          if (callbacksRef.current.onRoomClosed) callbacksRef.current.onRoomClosed(payload.payload || {});
+        })
+        .on('broadcast', { event: 'room_closed' }, (payload) => {
+          if (callbacksRef.current.onRoomClosed) callbacksRef.current.onRoomClosed(payload.payload || {});
+        })
         .on('broadcast', { event: 'ping_check' }, (payload) => {
           if (payload.payload?.timestamp && isMounted) {
             const rtt = Math.max(1, Math.round(performance.now() - payload.payload.timestamp));
@@ -392,6 +402,9 @@ export function useRealtimeGame({
           (payload: any) => {
             if (payload.new?.status && callbacksRef.current.onRoomStatusChanged) {
               callbacksRef.current.onRoomStatusChanged(payload.new.status);
+            }
+            if (payload.new?.status === 'ENDED' && callbacksRef.current.onRoomClosed) {
+              callbacksRef.current.onRoomClosed({ reason: 'HOST_CLOSED' });
             }
             if (payload.new?.status === 'EMERGENCY_MEETING' && callbacksRef.current.onEmergencyMeeting) {
               callbacksRef.current.onEmergencyMeeting({ reporterId: '', reporterName: 'Tripulante' });

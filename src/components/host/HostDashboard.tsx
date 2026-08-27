@@ -25,6 +25,8 @@ import {
   Activity,
   Tv,
   RotateCcw,
+  LogOut,
+  Trash2,
 } from "lucide-react";
 
 interface Player {
@@ -85,8 +87,45 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [showCloseRoomModal, setShowCloseRoomModal] = useState<boolean>(false);
 
   const channelRef = useRef<any>(null);
+
+  // Função para destruir e encerrar a sala definitivamente
+  const handleDestroyRoom = async () => {
+    try {
+      if (channelRef.current) {
+        await channelRef.current.send({
+          type: "broadcast",
+          event: "ROOM_CLOSED",
+          payload: { reason: "HOST_CLOSED", timestamp: Date.now() },
+        }).catch(() => {});
+
+        await channelRef.current.send({
+          type: "broadcast",
+          event: "room_closed",
+          payload: { reason: "HOST_CLOSED", timestamp: Date.now() },
+        }).catch(() => {});
+      }
+
+      const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
+      if (isValidUuid) {
+        await supabase.from("rooms").update({ status: "ENDED" }).eq("id", roomId);
+      }
+
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("host_current_room_id");
+        localStorage.removeItem("host_current_room_code");
+        localStorage.removeItem(`room_roles_${roomId}`);
+        localStorage.removeItem(`room_roles_${roomCode}`);
+      }
+
+      window.location.href = "/";
+    } catch (err) {
+      console.error("Erro ao encerrar sala:", err);
+      window.location.href = "/";
+    }
+  };
 
   // Cronômetro da partida quando em jogo
   useEffect(() => {
@@ -662,6 +701,15 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
             >
               <Printer className="w-4 h-4" />
             </Link>
+
+            <button
+              type="button"
+              onClick={() => setShowCloseRoomModal(true)}
+              className="p-2 rounded-xl bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-400 transition-all flex items-center justify-center shadow-md cursor-pointer active:scale-95"
+              title="Encerrar Sala Definitivamente"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -1228,20 +1276,65 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
             )}
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setIsGameRunning(false);
-              setActiveTab("LOBBY");
-              setActionLogs((prev) => ["Partida encerrada pelo host.", ...prev]);
-            }}
-            className="w-full h-[50px] rounded-2xl btn-3d-slate flex items-center justify-center gap-2 text-sm font-black uppercase cursor-pointer"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>ENCERRAR PARTIDA & VOLTAR AO LOBBY</span>
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsGameRunning(false);
+                setActiveTab("LOBBY");
+                setActionLogs((prev) => ["Partida encerrada pelo host.", ...prev]);
+              }}
+              className="w-full h-[46px] rounded-2xl btn-3d-slate flex items-center justify-center gap-2 text-xs font-black uppercase cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>VOLTAR AO LOBBY (NOVA RODADA)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCloseRoomModal(true)}
+              className="w-full h-[42px] rounded-2xl bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-300 flex items-center justify-center gap-2 text-xs font-black uppercase cursor-pointer active:scale-95 transition-all"
+            >
+              <Trash2 className="w-4 h-4 text-red-400" />
+              <span>ENCERRAR SALA DEFINITIVAMENTE</span>
+            </button>
+          </div>
         )}
       </footer>
+
+      {/* Modal de Confirmação de Encerramento Definitivo da Sala */}
+      {showCloseRoomModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 p-4 flex items-center justify-center animate-in fade-in">
+          <div className="w-full max-w-sm bg-slate-900 border-2 border-red-500/80 rounded-3xl p-6 shadow-2xl space-y-4 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-red-500/20 border-2 border-red-500 flex items-center justify-center text-red-400 mx-auto animate-pulse">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-white uppercase tracking-wider">
+                Encerrar Sala Definitivamente?
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Esta ação finalizará a sessão para todos os <strong>{players.length} jogadores</strong> e o Telão da TV, redirecionando todos para a tela inicial.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleDestroyRoom}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-950/60 active:scale-95 cursor-pointer"
+              >
+                Sim, Encerrar Sala
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCloseRoomModal(false)}
+                className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider border border-slate-700 cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

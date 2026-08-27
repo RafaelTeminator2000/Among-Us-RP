@@ -23,6 +23,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
   const [gameEvents, setGameEvents] = useState<GameEventRecord[]>([]);
   const [displayCode, setDisplayCode] = useState<string>(propRoomCode || roomId.substring(0, 4).toUpperCase());
   const [winnerTeam, setWinnerTeam] = useState<'CREWMATE' | 'IMPOSTOR' | null>(null);
+  const [isRoomClosed, setIsRoomClosed] = useState(false);
 
   const { initAudio, playSiren, playEmergencyBuzzer, stopAll } = useGameAudio();
   const supabase = createClient();
@@ -244,6 +245,13 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
         });
       }
     },
+    onRoomClosed: () => {
+      stopAll();
+      setIsRoomClosed(true);
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 4000);
+    },
   });
 
   // Sincronizar atualizações da tabela room_players em tempo real para a TV
@@ -344,6 +352,25 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
 
     return () => stopAll();
   }, [gameState, isLightsSabotaged, audioEnabled, playSiren, playEmergencyBuzzer, stopAll]);
+
+  // Se a sala tiver sido encerrada pelo Host
+  if (isRoomClosed) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white p-8 flex flex-col items-center justify-center font-sans select-none text-center animate-in fade-in">
+        <div className="w-full max-w-lg bg-slate-900 border-2 border-red-500/80 rounded-3xl p-10 shadow-2xl space-y-4">
+          <div className="w-20 h-20 rounded-2xl bg-red-500/20 border-2 border-red-500 flex items-center justify-center text-red-400 mx-auto animate-pulse">
+            <AlertTriangle className="w-10 h-10" />
+          </div>
+          <h2 className="text-3xl font-black uppercase tracking-wider text-white">
+            SESSÃO FINALIZADA PELO DIRETOR
+          </h2>
+          <p className="text-sm text-slate-400">
+            A sala foi encerrada pelo Host. Redirecionando para a tela inicial...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Se o jogo estiver finalizado, renderizar o Painel de Estatísticas Finais pós-jogo
   if (gameState === 'ENDED' || gameState === 'FINISHED') {
