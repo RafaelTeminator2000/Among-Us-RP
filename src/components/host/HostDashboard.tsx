@@ -835,13 +835,16 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab("MASTER")}
-            className={`py-2 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+            className={`py-2 rounded-xl text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === "MASTER"
-                ? "bg-red-500 text-white shadow-md animate-pulse"
+                ? "bg-red-600 text-white shadow-md shadow-red-950/60"
+                : isGameRunning
+                ? "bg-red-950/60 border border-red-500/50 text-red-300 hover:bg-red-900/60"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            Master
+            {isGameRunning && <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />}
+            <span>{isGameRunning ? "Master (Ao Vivo)" : "Master"}</span>
           </button>
         </div>
       </header>
@@ -1147,10 +1150,30 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         )}
 
         {/* ----------------------------------------------------------------------- */}
-        {/* ESTADO 3.3: LOBBY DA SALA (AGUARDANDO INÍCIO)                           */}
+        {/* ESTADO 3.3: LOBBY DA SALA (AGUARDANDO INÍCIO OU PARTIDA EM ANDAMENTO)   */}
         {/* ----------------------------------------------------------------------- */}
         {activeTab === "LOBBY" && (
           <div className="space-y-3 animate-in fade-in">
+            {/* Banner de Partida em Andamento quando no Lobby */}
+            {isGameRunning && (
+              <div className="p-3 bg-red-950/80 border border-red-500/70 rounded-2xl flex items-center justify-between shadow-lg shadow-red-950/50 animate-in fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping shrink-0" />
+                  <div>
+                    <span className="text-xs font-black text-white uppercase tracking-wider block">Partida em Andamento</span>
+                    <span className="text-[10px] text-red-200 font-mono">Tripulantes ativos na nave ({players.length})</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("MASTER")}
+                  className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-[11px] uppercase tracking-wider shadow-md active:scale-95 cursor-pointer"
+                >
+                  Painel Master ▶
+                </button>
+              </div>
+            )}
+
             {/* Card Superior: Código em Destaque & Contador */}
             <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
               <div>
@@ -1338,9 +1361,9 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         )}
       </main>
 
-      {/* FOOTER CTA FIXO (INICIAR OU SALVAR) */}
+      {/* FOOTER CTA FIXO (INICIAR OU CONTROLES DA PARTIDA) */}
       <footer className="z-10 pt-2 border-t border-slate-800">
-        {activeTab !== "MASTER" ? (
+        {!isGameRunning ? (
           <button
             type="button"
             disabled={isStarting || players.length < 1}
@@ -1358,6 +1381,15 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
                 <span>🚀 INICIAR PARTIDA ({players.length})</span>
               </>
             )}
+          </button>
+        ) : activeTab !== "MASTER" ? (
+          <button
+            type="button"
+            onClick={() => setActiveTab("MASTER")}
+            className="w-full h-[54px] rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white flex items-center justify-center gap-2 text-sm font-black uppercase shadow-lg shadow-red-950/80 active:scale-95 cursor-pointer border border-red-400/40 animate-pulse"
+          >
+            <Radio className="w-5 h-5 animate-pulse" />
+            <span>🎮 PARTIDA AO VIVO • VER PAINEL MASTER</span>
           </button>
         ) : (
           <div className="flex flex-col gap-2">
