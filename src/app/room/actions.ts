@@ -208,3 +208,78 @@ export async function joinRoomAction(
 
   return {};
 }
+
+/**
+ * Server Action: Iniciar Partida e Salvar Status no Banco
+ */
+export async function startGameAction(payload: {
+  roomId: string;
+  roomCode?: string;
+  rolesMap?: Record<string, string>;
+  rules?: any;
+}) {
+  try {
+    const supabase = await createClient();
+    const isValidUuid = (str?: string) =>
+      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+    let targetRoomId = isValidUuid(payload.roomId) ? payload.roomId : null;
+
+    if (!targetRoomId && payload.roomCode) {
+      const { data: roomData } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('code', payload.roomCode.toUpperCase())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (roomData) targetRoomId = roomData.id;
+    }
+
+    if (targetRoomId) {
+      await supabase
+        .from('rooms')
+        .update({
+          status: 'PLAYING' as any,
+          rules: payload.rules,
+        })
+        .eq('id', targetRoomId);
+
+      if (payload.rolesMap) {
+        for (const [pId, role] of Object.entries(payload.rolesMap)) {
+          if (isValidUuid(pId)) {
+            await supabase
+              .from('room_players')
+              .update({ role: role as any })
+              .eq('id', pId);
+          }
+        }
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('[startGameAction] Erro:', err?.message || err);
+    return { error: err?.message || 'Erro ao iniciar partida no servidor' };
+  }
+}
+
+/**
+ * Server Action: Atualizar Status da Sala
+ */
+export async function updateRoomStatusAction(roomId: string, status: string) {
+  try {
+    const supabase = await createClient();
+    const isValidUuid = (str?: string) =>
+      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+    if (isValidUuid(roomId)) {
+      await supabase.from('rooms').update({ status: status as any }).eq('id', roomId);
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('[updateRoomStatusAction] Erro:', err?.message || err);
+    return { error: err?.message || 'Erro ao atualizar status da sala' };
+  }
+}

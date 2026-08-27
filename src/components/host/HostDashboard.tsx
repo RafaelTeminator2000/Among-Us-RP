@@ -28,6 +28,7 @@ import {
   LogOut,
   Trash2,
 } from "lucide-react";
+import { startGameAction, updateRoomStatusAction } from "@/app/room/actions";
 
 interface Player {
   id: string;
@@ -56,12 +57,30 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
 }) => {
   const supabase = createClient();
 
-  // Sub-Estado / Aba Ativa
-  const [activeTab, setActiveTab] = useState<HostTab>("LOBBY");
+  // Sub-Estado / Aba Ativa inicializada a partir do status persistente
+  const [activeTab, setActiveTab] = useState<HostTab>(() => {
+    if (typeof window !== "undefined") {
+      const saved =
+        localStorage.getItem(`host_room_status_${roomId}`) ||
+        localStorage.getItem(`host_room_status_${roomCode}`);
+      if (saved === "PLAYING" || saved === "EMERGENCY_MEETING") {
+        return "MASTER";
+      }
+    }
+    return "LOBBY";
+  });
 
-  // Estado do Jogo
+  // Estado do Jogo inicializado a partir do status persistente
   const [players, setPlayers] = useState<Player[]>(initialPlayers || []);
-  const [isGameRunning, setIsGameRunning] = useState<boolean>(false);
+  const [isGameRunning, setIsGameRunning] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved =
+        localStorage.getItem(`host_room_status_${roomId}`) ||
+        localStorage.getItem(`host_room_status_${roomCode}`);
+      return saved === "PLAYING" || saved === "EMERGENCY_MEETING";
+    }
+    return false;
+  });
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [globalTaskProgress, setGlobalTaskProgress] = useState<number>(0);
   const [actionLogs, setActionLogs] = useState<string[]>([
@@ -266,9 +285,16 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           } catch {}
         }
 
-        if (roomData.status === "PLAYING" || roomData.status === "EMERGENCY_MEETING") {
+        const localStatus = typeof window !== "undefined"
+          ? (localStorage.getItem(`host_room_status_${resolvedUuid}`) || localStorage.getItem(`host_room_status_${cleanCode}`))
+          : null;
+
+        if (roomData.status === "PLAYING" || roomData.status === "EMERGENCY_MEETING" || localStatus === "PLAYING" || localStatus === "EMERGENCY_MEETING") {
           setIsGameRunning(true);
           setActiveTab("MASTER");
+          if (roomData.status !== "PLAYING" && roomData.status !== "EMERGENCY_MEETING") {
+            updateRoomStatusAction(resolvedUuid, "PLAYING").catch(() => {});
+          }
         } else if (roomData.status === "LOBBY" || roomData.status === "ENDED" || roomData.status === "FINISHED") {
           setIsGameRunning(false);
           setActiveTab("LOBBY");
@@ -590,48 +616,68 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         }))
       );
 
-      if (isValidUuid) {
-        const isPlayerUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-        for (const player of players) {
-          const role = rolesMap[player.id];
-          if (isPlayerUuid(player.id)) {
-            await supabase
-              .from("room_players")
-              .update({ role })
-              .eq("id", player.id);
-          }
-        }
+      // Persistir status e regras tanto via Server Action quanto localmente
+      const rulesPayload = {
+        kill_cooldown: killCooldown,
+        killCooldown,
+        impostor_count: impostorCount,
+        impostorCount,
+        task_count: taskCount,
+        taskCount,
+        discussion_time: discussionTime,
+        discussionTime,
+        voting_time: votingTime,
+        votingTime,
+        confirm_ejects: confirmEjections,
+        confirmEjections,
+        anonymous_votes: anonymousVotes,
+        anonymousVotes,
+      };
 
-        await supabase
-          .from("rooms")
-          .update({
-            status: "PLAYING",
-            rules: {
-              kill_cooldown: killCooldown,
-              impostor_count: impostorCount,
-              task_count: taskCount,
-              discussion_time: discussionTime,
-              voting_time: votingTime,
-              confirm_ejects: confirmEjections,
-              anonymous_votes: anonymousVotes,
-            },
-          })
-          .eq("id", roomId);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`host_room_status_${roomId}`, "PLAYING");
+        if (roomCode) localStorage.setItem(`host_room_status_${roomCode}`, "PLAYING");
+      }
+
+      // Executar Server Action para atualizar o banco mesmo sem autenticação do host
+      startGameAction({
+        roomId,
+        roomCode,
+        rolesMap,
+        rules: rulesPayload,
+      }).catch((err) => {
+        console.warn("Aviso ao salvar início da partida via Server Action:", err);
+      });
+
+      if (isValidUuid) {
+        try {
+          const isPlayerUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+          for (const player of players) {
+            const role = rolesMap[player.id];
+            if (isPlayerUuid(player.id)) {
+              await supabase
+                .from("room_players")
+                .update({ role })
+                .eq("id", player.id);
+            }
+          }
+
+          await supabase
+            .from("rooms")
+            .update({
+              status: "PLAYING",
+              rules: rulesPayload,
+            })
+            .eq("id", roomId);
+        } catch (dbErr) {
+          console.warn("Aviso ao atualizar banco diretamente pelo cliente:", dbErr);
+        }
       }
 
       const payload = {
         status: "PLAYING",
         roles: rolesMap,
-        rules: {
-          killCooldown,
-          impostorCount,
-          taskCount,
-          task_count: taskCount,
-          discussionTime,
-          votingTime,
-          confirmEjections,
-          anonymousVotes,
-        },
+        rules: rulesPayload,
         timestamp: Date.now(),
       };
 
@@ -1318,9 +1364,14 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (typeof window !== "undefined") {
+                  localStorage.setItem(`host_room_status_${roomId}`, "LOBBY");
+                  if (roomCode) localStorage.setItem(`host_room_status_${roomCode}`, "LOBBY");
+                }
+                updateRoomStatusAction(roomId, "LOBBY").catch(() => {});
                 setIsGameRunning(false);
                 setActiveTab("LOBBY");
-                setActionLogs((prev) => ["Partida encerrada pelo host.", ...prev]);
+                setActionLogs((prev) => ["Partida retornada ao lobby pelo host.", ...prev]);
               }}
               className="w-full h-[46px] rounded-2xl btn-3d-slate flex items-center justify-center gap-2 text-xs font-black uppercase cursor-pointer"
             >
