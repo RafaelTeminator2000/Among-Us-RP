@@ -1672,6 +1672,14 @@ export default function RoomPage({ params }: RoomPageProps) {
 
   // Reportar corpo de um jogador encontrado
   const handleBodyReported = (deadPlayerName: string) => {
+    // Se a comunicação estiver sabotada e não for acionamento pelo Botão de Emergência físico, bloquear o reporte por rádio
+    if (activeSabotageType === 'COMMS' && !deadPlayerName.toLowerCase().includes('botão') && !deadPlayerName.toLowerCase().includes('emergência')) {
+      setShowReportScanner(false);
+      setTaskFeedback('⚠️ COMUNICAÇÃO SABOTADA! O rádio não transmite reportes. Vá presencialmente até o Botão de Emergência Central!');
+      setTimeout(() => setTaskFeedback(null), 4500);
+      return;
+    }
+
     playEmergencyBuzzer();
     setShowReportScanner(false);
     const myName = playerName || 'Tripulante';
@@ -2002,14 +2010,31 @@ export default function RoomPage({ params }: RoomPageProps) {
         )}
 
         <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => setShowReportScanner(true)}
-            className="flex-1 h-[54px] rounded-2xl btn-3d-red flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer"
-          >
-            <Megaphone className="w-5 h-5 stroke-[2.5]" />
-            <span>REPORTAR</span>
-          </button>
+          {/* Botão de Reportar com Bloqueio Tático durante Sabotagem de Comunicações */}
+          {activeSabotageType === 'COMMS' ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTaskFeedback(
+                  '⚠️ COMUNICAÇÃO SABOTADA! O rádio não funciona para reportar corpos. Dirija-se até o Botão de Emergência Central na Cafeteria!'
+                );
+                setTimeout(() => setTaskFeedback(null), 4500);
+              }}
+              className="flex-1 h-[54px] rounded-2xl bg-purple-950/85 border-2 border-purple-500 text-purple-200 flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer animate-pulse"
+            >
+              <Radio className="w-5 h-5 text-purple-400" />
+              <span>COMMS OFFLINE</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowReportScanner(true)}
+              className="flex-1 h-[54px] rounded-2xl btn-3d-red flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer"
+            >
+              <Megaphone className="w-5 h-5 stroke-[2.5]" />
+              <span>REPORTAR</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -2266,6 +2291,13 @@ export default function RoomPage({ params }: RoomPageProps) {
                 const cleanCode = code.trim().toUpperCase();
 
                 if (cleanCode.includes('REPORT_BODY') || cleanCode === 'REPORT') {
+                  if (activeSabotageType === 'COMMS') {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ COMUNICAÇÃO SABOTADA! O rádio não transmite reportes. Vá presencialmente até o Botão de Emergência Central na Cafeteria!');
+                    setTimeout(() => setTaskFeedback(null), 4500);
+                    return;
+                  }
                   setActiveMinigame(null);
                   setSelectedTask(null);
                   handleBodyReported('Corpo Encontrado (QR Físico)');

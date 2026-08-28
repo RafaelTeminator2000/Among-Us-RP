@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Zap, AlertTriangle, QrCode, Flashlight, Lightbulb, LightbulbOff } from 'lucide-react';
+import { Zap, AlertTriangle, QrCode, Flashlight, Lightbulb, LightbulbOff, X } from 'lucide-react';
 
 interface DarknessOverlayProps {
   onOpenGenerator?: () => void;
@@ -15,6 +15,7 @@ export function DarknessOverlay({
   const [isTorchOn, setIsTorchOn] = useState<boolean>(false);
   const [isTorchSupported, setIsTorchSupported] = useState<boolean>(true);
   const [torchError, setTorchError] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
 
@@ -56,7 +57,7 @@ export function DarknessOverlay({
       if (navigator.vibrate) navigator.vibrate([60, 40, 80]);
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Câmera/Lanterna não suportada neste navegador.');
+        throw new Error('Câmera/Lanterna não suportada neste dispositivo.');
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -90,7 +91,7 @@ export function DarknessOverlay({
       console.warn('Falha ao acionar lanterna de hardware:', err);
       // Fallback: modo de iluminação de tela
       setIsTorchOn(true);
-      setTorchError('Lanterna ativada em modo tela (brilho alto)');
+      setTorchError('Lanterna de tela ativa');
       setIsTorchSupported(false);
     }
   };
@@ -103,105 +104,63 @@ export function DarknessOverlay({
   }, [stopTorch]);
 
   return (
-    <div
-      className={`fixed inset-0 z-40 select-none overflow-hidden flex flex-col justify-between p-4 transition-all duration-300 ${
-        isTorchOn
-          ? 'bg-slate-950/85 backdrop-blur-[2px]'
-          : 'bg-[#020617]/98'
-      }`}
-    >
-      {/* Luz ambiente / Halo caso a lanterna esteja ligada na tela */}
-      {isTorchOn && (
-        <div className="pointer-events-none absolute inset-0 bg-radial from-cyan-400/20 via-sky-500/10 to-transparent animate-pulse" />
-      )}
+    <>
+      {/* Vinheta/Ambiente de escuridão sutil não-bloqueante na tela */}
+      <div className="fixed inset-0 pointer-events-none z-20 shadow-[inset_0_0_90px_rgba(0,0,0,0.85)] border-4 border-amber-500/20" />
 
-      {/* Alerta de Topo: Energia Apagada */}
-      <div className="z-10 pt-2 flex justify-center">
-        <div className="flex items-center gap-2.5 bg-red-950/90 border border-red-500/70 text-red-200 px-4 py-2.5 rounded-full shadow-[0_0_30px_rgba(239,68,68,0.4)] backdrop-blur-md animate-pulse">
-          <Zap className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-bounce" />
-          <div className="flex flex-col">
-            <span
-              style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
-              className="text-xs uppercase tracking-widest text-red-200"
-            >
-              ⚡ ENERGIA APAGADA!
-            </span>
-            <span className="text-[10px] text-red-300/80 font-mono">
-              Luzes físicas cortadas no ambiente
-            </span>
+      {/* Banner Superior Fixo de Debuff de Luzes com Acesso Rápido à Lanterna e Reparo */}
+      <div className="fixed top-2.5 inset-x-3 z-30 flex flex-col items-center gap-2 select-none animate-in fade-in slide-in-from-top-3">
+        <div className="w-full max-w-md bg-[#0f1422]/95 border-2 border-amber-500/80 rounded-2xl p-2.5 shadow-[0_0_25px_rgba(245,158,11,0.35)] backdrop-blur-md flex items-center justify-between gap-2">
+          {/* Informação do Debuff */}
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="p-2 rounded-xl bg-amber-950/90 border border-amber-500/60 text-yellow-400 shrink-0 animate-pulse">
+              <Zap className="w-4 h-4 fill-yellow-400" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span
+                  style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
+                  className="text-xs uppercase tracking-wider text-amber-300 truncate"
+                >
+                  ⚡ APAGÃO: LUZES CORTADAS
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-300 font-mono truncate">
+                Luzes físicas desligadas no ambiente
+              </p>
+            </div>
           </div>
-          <AlertTriangle className="w-4 h-4 text-red-400 ml-1" />
+
+          {/* Botões de Ação Rápida */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Botão de Ligar Lanterna Real */}
+            <button
+              type="button"
+              onClick={toggleTorch}
+              className={`px-3 py-2 rounded-xl border flex items-center gap-1.5 text-xs font-black uppercase transition-all active:scale-95 cursor-pointer shadow-md ${
+                isTorchOn
+                  ? 'bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 border-white shadow-[0_0_20px_rgba(250,204,21,0.8)] animate-pulse'
+                  : 'bg-slate-900 border-slate-700 text-amber-400 hover:border-amber-400 hover:bg-slate-800'
+              }`}
+            >
+              <Flashlight className="w-3.5 h-3.5" />
+              <span>{isTorchOn ? 'LANTERNA ON' : 'LANTERNA'}</span>
+            </button>
+
+            {/* Botão de Escanear Disjuntor */}
+            {onOpenGenerator && (
+              <button
+                type="button"
+                onClick={onOpenGenerator}
+                title="Escanear Disjuntor"
+                className="p-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white border border-amber-400/50 active:scale-95 cursor-pointer shadow-md"
+              >
+                <QrCode className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* Área Central: Botão Funcional de Lanterna do Celular */}
-      <div className="z-10 my-auto flex flex-col items-center justify-center gap-4 text-center px-4">
-        <button
-          type="button"
-          onClick={toggleTorch}
-          className={`w-36 h-36 rounded-full border-4 flex flex-col items-center justify-center transition-all duration-300 cursor-pointer shadow-2xl active:scale-95 ${
-            isTorchOn
-              ? 'bg-gradient-to-b from-cyan-400 to-cyan-600 border-white text-slate-950 shadow-[0_0_60px_rgba(6,182,212,0.8)] animate-pulse'
-              : 'bg-slate-900/90 border-slate-700 text-cyan-400 hover:border-cyan-500 hover:bg-slate-800 shadow-[0_0_30px_rgba(0,0,0,0.8)]'
-          }`}
-        >
-          {isTorchOn ? (
-            <>
-              <Lightbulb className="w-12 h-12 text-slate-950 fill-slate-950 drop-shadow-md animate-bounce" />
-              <span
-                style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
-                className="text-xs uppercase tracking-wider mt-1 font-black"
-              >
-                LANTERNA ON
-              </span>
-            </>
-          ) : (
-            <>
-              <Flashlight className="w-12 h-12 drop-shadow-[0_0_15px_rgba(6,182,212,0.6)]" />
-              <span
-                style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
-                className="text-xs uppercase tracking-wider mt-1 text-slate-200"
-              >
-                LIGAR LANTERNA
-              </span>
-            </>
-          )}
-        </button>
-
-        <p className="text-xs text-slate-400 max-w-xs font-mono">
-          {isTorchOn
-            ? '🔦 Lanterna ativada! Use o foco de luz para se deslocar até o disjuntor.'
-            : 'Toque no botão acima para acender o flash do seu celular no escuro.'}
-        </p>
-
-        {torchError && (
-          <span className="text-[10px] text-amber-400 font-mono bg-amber-950/80 px-3 py-1 rounded-full border border-amber-800/60">
-            {torchError}
-          </span>
-        )}
-      </div>
-
-      {/* Rodapé: Localizador e Botão de Leitura de QR Code */}
-      <div className="z-10 pb-4 flex flex-col items-center gap-3">
-        <div className="flex items-center gap-2 bg-slate-900/95 border border-slate-700 text-slate-300 px-4 py-2 rounded-full text-xs font-medium backdrop-blur-md shadow-lg">
-          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping shrink-0" />
-          <span>
-            Localize no ambiente:{' '}
-            <strong className="text-cyan-300 font-bold">{generatorLocationName}</strong>
-          </span>
-        </div>
-
-        {onOpenGenerator && (
-          <button
-            type="button"
-            onClick={onOpenGenerator}
-            className="w-full max-w-sm h-[54px] rounded-2xl btn-3d-amber flex items-center justify-center gap-2.5 text-sm font-black uppercase tracking-wider cursor-pointer active:scale-95 shadow-2xl"
-          >
-            <QrCode className="w-5 h-5 stroke-[2.5]" />
-            <span>ESCANEAR DISJUNTOR / LUZES</span>
-          </button>
-        )}
-      </div>
-    </div>
+    </>
   );
 }

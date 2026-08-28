@@ -168,29 +168,34 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  if (isCommsSabotaged) {
-    return (
-      <div className="w-full border-2 border-purple-600/70 rounded-3xl p-6 shadow-[0_0_30px_rgba(147,51,234,0.25)] bg-[#100b20]/95 text-center space-y-3 font-mono animate-pulse select-none">
-        <div className="w-12 h-12 rounded-full bg-purple-950/90 border border-purple-500/60 text-purple-400 mx-auto flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.4)]">
-          <Radio className="w-6 h-6 animate-pulse" />
-        </div>
-        <div className="space-y-1">
-          <h3 className="text-sm font-black uppercase tracking-wider text-purple-200">
-            📡 COMUNICAÇÕES OFFLINE
-          </h3>
-          <p className="text-xs text-purple-300/80">
-            Lista de tarefas oculta por interferência de sinal.
-          </p>
-        </div>
-        <div className="pt-1 text-[10px] text-purple-300 font-bold bg-purple-950/80 py-1.5 px-3 rounded-xl border border-purple-800/60 inline-block">
-          📍 Escaneie o QR da Sala de Comunicações
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-full border rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 font-mono select-none pointer-events-none transition-colors bg-[#0b1120]/90 border-slate-800">
+    <div className="w-full space-y-3 font-mono select-none">
+      {/* Banner de Debuff quando a Comunicação estiver sabotada */}
+      {isCommsSabotaged && (
+        <div className="w-full bg-purple-950/90 border-2 border-purple-500/70 rounded-2xl p-3 shadow-[0_0_25px_rgba(147,51,234,0.35)] text-left flex items-center justify-between gap-2.5 animate-pulse select-none">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-2 rounded-xl bg-purple-900 border border-purple-400 text-purple-300 shrink-0">
+              <Radio className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span
+                style={{ fontFamily: 'var(--font-anton), Anton, sans-serif' }}
+                className="text-xs uppercase tracking-wider text-purple-200 block truncate"
+              >
+                📡 COMUNICAÇÃO SABOTADA
+              </span>
+              <span className="text-[10px] text-purple-300/80 font-mono block truncate">
+                Reporte de corpos bloqueado. Use o Botão Central.
+              </span>
+            </div>
+          </div>
+          <span className="text-[9px] font-mono font-bold bg-purple-900/80 border border-purple-500/50 text-purple-200 px-2 py-1 rounded-lg shrink-0">
+            📍 Comms
+          </span>
+        </div>
+      )}
+
+      <div className="w-full border rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 font-mono select-none pointer-events-none transition-colors bg-[#0b1120]/90 border-slate-800">
       {displayTasks.map((task, index) => {
         const isCompleted =
           completedTasks.includes(task.id) ||
@@ -254,6 +259,8 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
           </div>
         );
       })}
+      </div>
     </div>
   );
 };
+
