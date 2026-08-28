@@ -1977,7 +1977,12 @@ export default function RoomPage({ params }: RoomPageProps) {
       )}
 
       {/* Lista Informativa de Tarefas do Jogador */}
-      <main className="my-auto space-y-4 z-10 py-3 flex-1 flex flex-col justify-start">
+      <main className="my-auto space-y-3.5 z-10 py-3 flex-1 flex flex-col justify-start">
+        {/* Banner de Sabotagem de Luzes (Debuff com Lanterna) posicionado abaixo do progresso geral */}
+        {isLightsSabotaged && playerRole !== 'IMPOSTOR' && playerStatus === 'ALIVE' && (
+          <DarknessOverlay generatorLocationName="Quadro de Luz (POINT_01)" />
+        )}
+
         <PlayerTaskList
           tasks={assignedTasks}
           completedTasks={completedTasks}
@@ -2670,13 +2675,7 @@ export default function RoomPage({ params }: RoomPageProps) {
         />
       )}
 
-      {/* Overlay de Escuridão Dinâmica com Lanterna (Apenas para Crewmates Vivos durante apagão) */}
-      {isLightsSabotaged && playerRole !== 'IMPOSTOR' && playerStatus === 'ALIVE' && (
-        <DarknessOverlay
-          onOpenGenerator={() => setActiveMinigame('qr')}
-          generatorLocationName="Quadro de Luz (POINT_01)"
-        />
-      )}
+
 
       {/* Banner de Alerta para Sabotagens Críticas (Reator e O2) com Sirene e Contagem Regressiva */}
       {(activeSabotageType === 'REACTOR' || activeSabotageType === 'O2') && sabotageSecondsLeft !== null && (
