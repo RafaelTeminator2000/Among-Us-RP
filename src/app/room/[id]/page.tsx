@@ -247,6 +247,13 @@ export default function RoomPage({ params }: RoomPageProps) {
     setCompletedTasks([]);
     setIsLightsSabotaged(false);
     setIsSabotaged(false);
+    setActiveSabotageType(null);
+    setSabotageSecondsLeft(null);
+    setSabotageBaseCooldown(60);
+    setSabotageCooldown(60);
+    setAccumulatedSabotagePenalty(0);
+    setReactorUsesCount(0);
+    setO2UsesCount(0);
     setPlayerStatus('ALIVE');
     setPlayerRole(roleToSet);
     setMapData(DEFAULT_DEMO_MAP);

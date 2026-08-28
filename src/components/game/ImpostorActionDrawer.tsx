@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ChevronUp, ChevronDown, Zap, Flame, Wind, Radio, Atom, X, AlertTriangle, Clock } from "lucide-react";
 import { ImpostorKillButton } from "@/components/game/ImpostorKillButton";
 import { PlayerGameState } from "@/types/game";
@@ -89,7 +89,7 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
   players,
   isLightsSabotaged,
   isSabotageActive = false,
-  cooldownSeconds = 0,
+  cooldownSeconds,
   reactorUses = 0,
   o2Uses = 0,
   accumulatedPenalty = 0,
@@ -99,19 +99,43 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [showSabotageModal, setShowSabotageModal] = useState<boolean>(false);
+  const [internalCooldown, setInternalCooldown] = useState<number>(() => {
+    if (typeof cooldownSeconds === "number" && cooldownSeconds > 0) return cooldownSeconds;
+    return baseCooldown || 60;
+  });
+
+  // Sincronizar sempre que a prop externa cooldownSeconds for alterada
+  useEffect(() => {
+    if (typeof cooldownSeconds === "number") {
+      setInternalCooldown(cooldownSeconds);
+    }
+  }, [cooldownSeconds]);
+
+  const isBlocked = isSabotageActive || isLightsSabotaged;
+
+  // Contagem regressiva autônoma do cooldown de sabotagem
+  useEffect(() => {
+    if (isBlocked || internalCooldown <= 0) return;
+
+    const timer = setInterval(() => {
+      setInternalCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [internalCooldown, isBlocked]);
+
+  const currentCooldown = internalCooldown;
+  const isOnCooldown = currentCooldown > 0;
 
   const handleSelectSabotage = (type: SabotageType) => {
     if (type === "REACTOR" && reactorUses >= 2) return;
     if (type === "O2" && o2Uses >= 2) return;
-    if (cooldownSeconds > 0 || isSabotageActive || isLightsSabotaged) return;
+    if (currentCooldown > 0 || isBlocked) return;
 
     onTriggerSabotage(type);
     setShowSabotageModal(false);
     setIsOpen(false);
   };
-
-  const isOnCooldown = cooldownSeconds > 0;
-  const isBlocked = isSabotageActive || isLightsSabotaged;
 
   return (
     <>
@@ -179,18 +203,18 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
               ) : isOnCooldown ? (
                 <div className="w-full h-12 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col items-center justify-center px-4 shadow-md relative overflow-hidden">
                   <div
-                    className="absolute inset-y-0 left-0 bg-amber-500/10 transition-all duration-1000"
+                    className="absolute inset-y-0 left-0 bg-amber-500/15 transition-all duration-1000"
                     style={{
                       width: `${Math.max(
                         0,
-                        Math.min(100, 100 - (cooldownSeconds / (baseCooldown + accumulatedPenalty)) * 100)
+                        Math.min(100, 100 - (currentCooldown / Math.max(1, baseCooldown + accumulatedPenalty)) * 100)
                       )}%`,
                     }}
                   />
-                  <div className="flex items-center gap-2 z-10 text-slate-400 text-xs font-mono font-bold">
+                  <div className="flex items-center gap-2 z-10 text-slate-300 text-xs font-mono font-bold">
                     <Clock className="w-3.5 h-3.5 text-amber-400 animate-spin" />
                     <span>RECARGA DE SABOTAGEM:</span>
-                    <span className="text-amber-300 text-sm font-black">{cooldownSeconds}s</span>
+                    <span className="text-amber-300 text-sm font-black">{currentCooldown}s</span>
                   </div>
                 </div>
               ) : (
