@@ -105,11 +105,9 @@ export function useRealtimeGame({
   onRoomClosed,
 }: UseRealtimeGameProps) {
   const [connectionState, setConnectionState] = useState<RealtimeConnectionState>('CONNECTING');
-  const [latency, setLatency] = useState<number | null>(14);
   const [presencePlayers, setPresencePlayers] = useState<PresencePlayer[]>([]);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
-  const pingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = useMemo(() => createClient(), []);
 
   // Manter refs atualizadas de callbacks e props do jogador para evitar re-subscriptions infinitos
@@ -131,7 +129,28 @@ export function useRealtimeGame({
     onRoomClosed,
   });
 
-  callbacksRef.current = {
+  const playerRef = useRef({ playerId, playerName, playerColor, playerRole, isAlive });
+
+  useEffect(() => {
+    callbacksRef.current = {
+      onGameStarted,
+      onPlayerKilled,
+      onEmergencyMeeting,
+      onSabotageTriggered,
+      onSabotageFixed,
+      onTaskCompleted,
+      onSkipDiscussion,
+      onVoteCast,
+      onVotingFinished,
+      onCrewmateVictory,
+      onImpostorVictory,
+      onRoomStatusChanged,
+      onPlayersPresenceChanged,
+      onPlayerKicked,
+      onRoomClosed,
+    };
+    playerRef.current = { playerId, playerName, playerColor, playerRole, isAlive };
+  }, [
     onGameStarted,
     onPlayerKilled,
     onEmergencyMeeting,
@@ -147,10 +166,12 @@ export function useRealtimeGame({
     onPlayersPresenceChanged,
     onPlayerKicked,
     onRoomClosed,
-  };
-
-  const playerRef = useRef({ playerId, playerName, playerColor, playerRole, isAlive });
-  playerRef.current = { playerId, playerName, playerColor, playerRole, isAlive };
+    playerId,
+    playerName,
+    playerColor,
+    playerRole,
+    isAlive,
+  ]);
 
   useEffect(() => {
     // Se o canal já estiver conectado, enviar presença e anúncio com os dados mais recentes
@@ -233,17 +254,6 @@ export function useRealtimeGame({
       fixedByPlayerId: playerRef.current.playerId || 'unknown',
     });
   }, [broadcastEvent]);
-
-  // Medição periódica de Latência via Ping/Pong (< 50ms requirement)
-  const measureLatency = useCallback(() => {
-    if (!channelRef.current) return;
-    const start = performance.now();
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'ping_check',
-      payload: { timestamp: start },
-    });
-  }, []);
 
   const isTrackedRef = useRef(false);
 
@@ -385,12 +395,6 @@ export function useRealtimeGame({
         })
         .on('broadcast', { event: 'room_closed' }, (payload) => {
           if (callbacksRef.current.onRoomClosed) callbacksRef.current.onRoomClosed(payload.payload || {});
-        })
-        .on('broadcast', { event: 'ping_check' }, (payload) => {
-          if (payload.payload?.timestamp && isMounted) {
-            const rtt = Math.max(1, Math.round(performance.now() - payload.payload.timestamp));
-            setLatency(rtt);
-          }
         });
 
       // Listener de Postgres Changes (Apenas se roomId for um UUID válido)
@@ -492,12 +496,6 @@ export function useRealtimeGame({
               payload: presencePayload,
             }).catch(() => {});
           }
-
-          // Medição de latência a cada 5s
-          if (pingTimerRef.current) clearInterval(pingTimerRef.current);
-          pingTimerRef.current = setInterval(() => {
-            measureLatency();
-          }, 5000);
         } else if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
           setConnectionState('ERROR');
           if (err) console.warn('[RealtimeGame] Erro na conexão com o canal:', err);
@@ -513,21 +511,16 @@ export function useRealtimeGame({
       isMounted = false;
       isTrackedRef.current = false;
 
-      if (pingTimerRef.current) {
-        clearInterval(pingTimerRef.current);
-        pingTimerRef.current = null;
-      }
-
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
-  }, [roomId, supabase, measureLatency]);
+  }, [roomId, supabase]);
 
   return {
     connectionState,
-    latency,
+    latency: 0,
     presencePlayers,
     killPlayer,
     triggerEmergencyMeeting,

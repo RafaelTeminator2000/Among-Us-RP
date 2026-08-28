@@ -146,8 +146,8 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     }
   }, [gameState, roomId, stopAll, supabase]);
 
-  // Hook de Sincronização em Tempo Real (latência < 50ms)
-  const { latency } = useRealtimeGame({
+  // Hook de Sincronização em Tempo Real (WebSocket Supabase)
+  const { connectionState } = useRealtimeGame({
     roomId,
     playerName: 'Telão Central (TV)',
     playerRole: null,
@@ -598,8 +598,16 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
       <div className="border-t border-slate-900 pt-5 flex items-center justify-between text-xs text-slate-500 font-mono">
         <span>AMONG US RP PHYGITAL • PLATAFORMA DE AUTOMAÇÃO DE TELÃO</span>
         <div className="flex items-center gap-3">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-          <span>REALTIME WS // LATÊNCIA: {latency !== null ? `${latency}ms` : '<50ms'}</span>
+          <span
+            className={`w-2 h-2 rounded-full ${
+              connectionState === 'CONNECTED'
+                ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                : 'bg-red-500 animate-pulse'
+            }`}
+          />
+          <span>
+            SISTEMA OPERACIONAL // STATUS: {connectionState === 'CONNECTED' ? 'ONLINE' : 'RECONECTANDO'}
+          </span>
         </div>
       </div>
     </div>

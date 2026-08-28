@@ -2,82 +2,51 @@
 
 import React from 'react';
 import { RealtimeConnectionState } from '@/lib/realtime-game';
-import { Activity, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { WifiOff, AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface ConnectionStatusHUDProps {
-  roomId: string;
+  roomId?: string;
   connectionState: RealtimeConnectionState;
   latency?: number | null;
   className?: string;
 }
 
+/**
+ * ConnectionStatusHUD: Banner discreto que só aparece quando a conexão
+ * com a nave (Supabase Realtime) estiver oscilando ou offline.
+ * Quando 'CONNECTED', não renderiza nada para manter a interface 100% limpa e com zero poluição.
+ */
 export const ConnectionStatusHUD: React.FC<ConnectionStatusHUDProps> = ({
-  roomId,
   connectionState,
-  latency = 14,
   className = '',
 }) => {
-  const getStatusBadge = () => {
-    switch (connectionState) {
-      case 'CONNECTED':
-        return (
-          <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            CONNECTED
-          </span>
-        );
-      case 'CONNECTING':
-      case 'RECONNECTING':
-        return (
-          <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
-            <span className="w-2 h-2 rounded-full bg-amber-400" />
-            CONNECTING...
-          </span>
-        );
-      case 'ERROR':
-        return (
-          <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/40">
-            <AlertTriangle className="w-3 h-3 text-red-400" />
-            ERROR
-          </span>
-        );
-      case 'DISCONNECTED':
-      default:
-        return (
-          <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700">
-            <WifiOff className="w-3 h-3" />
-            OFFLINE
-          </span>
-        );
-    }
-  };
+  if (connectionState === 'CONNECTED') {
+    return null;
+  }
+
+  if (connectionState === 'CONNECTING' || connectionState === 'RECONNECTING') {
+    return (
+      <div
+        className={`w-full bg-amber-950/80 backdrop-blur-md border border-amber-500/40 rounded-xl px-3 py-1.5 flex items-center justify-center gap-2 shadow-lg text-[11px] font-mono text-amber-300 animate-pulse ${className}`}
+      >
+        <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
+        <span>Sincronizando com os sistemas da nave...</span>
+      </div>
+    );
+  }
 
   return (
     <div
-      className={`w-full bg-slate-950/90 backdrop-blur-md border border-slate-800/80 rounded-2xl px-4 py-2 flex items-center justify-between shadow-lg text-xs ${className}`}
+      className={`w-full bg-red-950/90 backdrop-blur-md border border-red-500/50 rounded-xl px-3 py-1.5 flex items-center justify-between shadow-xl text-[11px] font-mono text-red-300 ${className}`}
     >
       <div className="flex items-center gap-2">
-        {getStatusBadge()}
-        <span className="text-slate-400 font-mono text-[11px]">
-          Sala: <strong className="text-slate-200 uppercase">{roomId.substring(0, 6)}</strong>
-        </span>
+        <WifiOff className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+        <span>Conexão perdida. Tentando reconectar...</span>
       </div>
-
-      <div className="flex items-center gap-1.5 text-slate-400 font-mono text-[11px]">
-        <Activity className={`w-3.5 h-3.5 ${connectionState === 'CONNECTED' ? 'text-emerald-400' : 'text-slate-500'}`} />
-        <span>Latency:</span>
-        <span
-          className={`font-bold ${
-            latency && latency < 50
-              ? 'text-emerald-400'
-              : latency && latency < 100
-              ? 'text-amber-400'
-              : 'text-red-400'
-          }`}
-        >
-          ~{latency ?? '--'}ms
-        </span>
-      </div>
+      <span className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-400 bg-red-900/40 px-2 py-0.5 rounded border border-red-500/30">
+        <AlertTriangle className="w-2.5 h-2.5" />
+        Offline
+      </span>
     </div>
   );
 };

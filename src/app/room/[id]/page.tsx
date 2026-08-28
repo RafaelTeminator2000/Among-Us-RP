@@ -447,8 +447,8 @@ export default function RoomPage({ params }: RoomPageProps) {
     initSession();
   }, [roomId, supabase]);
 
-  // Conexão e sincronização em tempo real via canal privado (latência < 50ms)
-  const { connectionState, latency, triggerSabotage, fixSabotage, broadcastEvent } = useRealtimeGame({
+  // Conexão e sincronização em tempo real via canal privado (WebSocket)
+  const { connectionState, triggerSabotage, fixSabotage, broadcastEvent } = useRealtimeGame({
     roomId,
     roomCode: !isValidUuid(roomId) ? roomId.toUpperCase() : undefined,
     playerId,
@@ -1606,7 +1606,6 @@ export default function RoomPage({ params }: RoomPageProps) {
           <ConnectionStatusHUD
             roomId={roomId}
             connectionState={connectionState}
-            latency={latency}
           />
         </header>
 
@@ -1709,7 +1708,6 @@ export default function RoomPage({ params }: RoomPageProps) {
         <ConnectionStatusHUD
           roomId={roomId}
           connectionState={connectionState}
-          latency={latency}
         />
       </header>
 
