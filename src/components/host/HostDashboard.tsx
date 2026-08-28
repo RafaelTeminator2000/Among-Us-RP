@@ -106,6 +106,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
   // Configurações Gerais (Estado 3.1: JOGO)
   const [impostorCount, setImpostorCount] = useState<number>(1);
   const [killCooldown, setKillCooldown] = useState<number>(30);
+  const [sabotageCooldown, setSabotageCooldown] = useState<number>(60);
   const [discussionTime, setDiscussionTime] = useState<number>(15);
   const [votingTime, setVotingTime] = useState<number>(30);
   const [anonymousVotes, setAnonymousVotes] = useState<boolean>(false);
@@ -349,6 +350,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           const rules = roomData.rules as any;
           if (rules.impostor_count || rules.impostorCount) setImpostorCount(Number(rules.impostor_count || rules.impostorCount));
           if (rules.kill_cooldown || rules.killCooldown) setKillCooldown(Number(rules.kill_cooldown || rules.killCooldown));
+          if (rules.sabotage_cooldown || rules.sabotageCooldown) setSabotageCooldown(Number(rules.sabotage_cooldown || rules.sabotageCooldown));
           if (rules.task_count || rules.taskCount) setTaskCount(Number(rules.task_count || rules.taskCount));
           if (rules.discussion_time || rules.discussionTime) setDiscussionTime(Number(rules.discussion_time || rules.discussionTime));
           if (rules.voting_time || rules.votingTime) setVotingTime(Number(rules.voting_time || rules.votingTime));
@@ -698,6 +700,8 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
       const rulesPayload = {
         kill_cooldown: killCooldown,
         killCooldown,
+        sabotage_cooldown: sabotageCooldown,
+        sabotageCooldown,
         impostor_count: impostorCount,
         impostorCount,
         task_count: taskCount,
@@ -1082,6 +1086,39 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
                   type="button"
                   onClick={() => setKillCooldown((prev) => Math.min(60, prev + 5))}
                   className="w-11 h-11 rounded-xl bg-slate-900 border border-slate-700 text-lg font-bold text-slate-200 hover:border-cyan-400 active:scale-95 flex items-center justify-center cursor-pointer"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Stepper: Recarga Base de Sabotagem (Progressiva) */}
+            <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Flame className="w-4 h-4 text-orange-400" />
+                  Recarga Inicial de Sabotagem
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">+40s críticas (máx 2x) / +25s mecânicas</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSabotageCooldown((prev) => Math.max(15, prev - 5))}
+                  className="w-11 h-11 rounded-xl bg-slate-900 border border-slate-700 text-lg font-bold text-slate-200 hover:border-orange-400 active:scale-95 flex items-center justify-center cursor-pointer"
+                >
+                  -
+                </button>
+                <span
+                  style={{ fontFamily: "var(--font-barlow), Barlow, sans-serif" }}
+                  className="w-12 text-center text-xl font-bold text-orange-400"
+                >
+                  {sabotageCooldown}s
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSabotageCooldown((prev) => Math.min(120, prev + 5))}
+                  className="w-11 h-11 rounded-xl bg-slate-900 border border-slate-700 text-lg font-bold text-slate-200 hover:border-orange-400 active:scale-95 flex items-center justify-center cursor-pointer"
                 >
                   +
                 </button>

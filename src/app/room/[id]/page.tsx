@@ -151,6 +151,11 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [isLightsSabotaged, setIsLightsSabotaged] = useState<boolean>(false);
   const [activeSabotageType, setActiveSabotageType] = useState<SabotageType | null>(null);
   const [sabotageSecondsLeft, setSabotageSecondsLeft] = useState<number | null>(null);
+  const [sabotageBaseCooldown, setSabotageBaseCooldown] = useState<number>(60);
+  const [sabotageCooldown, setSabotageCooldown] = useState<number>(60);
+  const [accumulatedSabotagePenalty, setAccumulatedSabotagePenalty] = useState<number>(0);
+  const [reactorUsesCount, setReactorUsesCount] = useState<number>(0);
+  const [o2UsesCount, setO2UsesCount] = useState<number>(0);
   const [showBreakerGame, setShowBreakerGame] = useState<boolean>(false);
   const [showCommsGame, setShowCommsGame] = useState<boolean>(false);
   const [showReactorGame, setShowReactorGame] = useState<boolean>(false);
@@ -358,6 +363,8 @@ export default function RoomPage({ params }: RoomPageProps) {
       if (room.rules) {
         const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
         if (tc) setTaskCount(Number(tc));
+        const sCd = (room.rules as any).sabotage_cooldown || (room.rules as any).sabotageCooldown;
+        if (sCd) setSabotageBaseCooldown(Number(sCd));
         if (room.rules.discussion_time || room.rules.discussionTime) {
           setDiscussionTimeSeconds(Number(room.rules.discussion_time || room.rules.discussionTime));
         }
@@ -533,6 +540,13 @@ export default function RoomPage({ params }: RoomPageProps) {
       if (tc) {
         setTaskCount(Number(tc));
       }
+      const sCd = payload.rules?.sabotage_cooldown || payload.rules?.sabotageCooldown;
+      const baseCd = sCd ? Number(sCd) : 60;
+      setSabotageBaseCooldown(baseCd);
+      setSabotageCooldown(baseCd);
+      setAccumulatedSabotagePenalty(0);
+      setReactorUsesCount(0);
+      setO2UsesCount(0);
       const gTime = payload.timestamp || Date.now();
       setGameStartTime(gTime);
       try {
@@ -701,6 +715,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       setShowReactorGame(false);
       setShowO2Game(false);
       stopAll();
+      setSabotageCooldown(sabotageBaseCooldown + accumulatedSabotagePenalty);
     },
     onTaskCompleted: (payload) => {
       if (payload && payload.playerId) {
@@ -1070,6 +1085,10 @@ export default function RoomPage({ params }: RoomPageProps) {
     setIsSabotaged(false);
     setActiveSabotageType(null);
     setSabotageSecondsLeft(null);
+    setSabotageCooldown(sabotageBaseCooldown);
+    setAccumulatedSabotagePenalty(0);
+    setReactorUsesCount(0);
+    setO2UsesCount(0);
     setVictoryModal(null);
     setSelectedTask(null);
     setActiveMinigame(null);
@@ -1309,8 +1328,45 @@ export default function RoomPage({ params }: RoomPageProps) {
     return () => clearInterval(timer);
   }, [activeSabotageType, sabotageSecondsLeft, broadcastEvent, stopAll]);
 
+  // Timer regressivo do Cooldown de Sabotagem do Impostor
+  useEffect(() => {
+    if (roomStatus !== 'PLAYING' || isSabotaged || isLightsSabotaged || activeSabotageType !== null) {
+      return;
+    }
+
+    if (sabotageCooldown > 0) {
+      const timer = setInterval(() => {
+        setSabotageCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [roomStatus, isSabotaged, isLightsSabotaged, activeSabotageType, sabotageCooldown]);
+
   // Disparar Sabotagem pelo Impostor (Luzes, Reator, O2, Comunicações)
   const handleTriggerSabotage = async (type: SabotageType = 'LIGHTS') => {
+    // 1. Validação de Limites de Sabotagens Críticas (Máximo 2x cada por partida)
+    if (type === 'REACTOR' && reactorUsesCount >= 2) {
+      setTaskFeedback('⚠️ O Reator já atingiu o limite de 2 sabotagens nesta partida!');
+      setTimeout(() => setTaskFeedback(null), 3500);
+      return;
+    }
+    if (type === 'O2' && o2UsesCount >= 2) {
+      setTaskFeedback('⚠️ O Oxigênio já atingiu o limite de 2 sabotagens nesta partida!');
+      setTimeout(() => setTaskFeedback(null), 3500);
+      return;
+    }
+
+    // 2. Aplicar Acréscimos de Tempo Progressivos (+40s para Críticas, +25s para Mecânicas)
+    if (type === 'REACTOR') {
+      setReactorUsesCount((prev) => prev + 1);
+      setAccumulatedSabotagePenalty((prev) => prev + 40);
+    } else if (type === 'O2') {
+      setO2UsesCount((prev) => prev + 1);
+      setAccumulatedSabotagePenalty((prev) => prev + 40);
+    } else if (type === 'LIGHTS' || type === 'COMMS') {
+      setAccumulatedSabotagePenalty((prev) => prev + 25);
+    }
+
     setActiveSabotageType(type);
     setIsSabotaged(true);
 
@@ -1351,6 +1407,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     setShowReactorGame(false);
     setShowO2Game(false);
     stopAll();
+    setSabotageCooldown(sabotageBaseCooldown + accumulatedSabotagePenalty);
     await fixSabotage();
 
     if (isValidUuid(roomId)) {
@@ -1926,6 +1983,12 @@ export default function RoomPage({ params }: RoomPageProps) {
             impostorId={playerId}
             players={allPlayers}
             isLightsSabotaged={isLightsSabotaged}
+            isSabotageActive={isSabotaged || activeSabotageType !== null}
+            cooldownSeconds={sabotageCooldown}
+            reactorUses={reactorUsesCount}
+            o2Uses={o2UsesCount}
+            accumulatedPenalty={accumulatedSabotagePenalty}
+            baseCooldown={sabotageBaseCooldown}
             onTriggerSabotage={handleTriggerSabotage}
             sendBroadcast={broadcastEvent}
           />
