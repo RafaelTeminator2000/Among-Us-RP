@@ -39,83 +39,129 @@ function shuffleArray<T>(array: T[], prng: () => number): T[] {
 }
 
 /**
- * Seleciona deterministicamente a quantidade de tarefas configurada pelo Host (`taskCount`)
- * para um jogador específico, aplicando **Dispersão Espacial por Cômodos** e **Variedade de Tipos**.
- *
- * Benefícios para o jogo RP Presencial:
- * 1. Dispersão Espacial: Prioriza tarefas em salas DIFERENTES para evitar aglomeração de jogadores em um só ponto.
- * 2. Variedade de Mecânicas: Evita que múltiplos jogadores fiquem presos na mesma tarefa repetida (ex: 3 motores).
- * 3. Alta Entropia: Usa FNV-1a + Mulberry32 para garantir sementes independentes entre jogadores.
+ * Baralho Global Balanceado (Round-Robin Deck):
+ * Distribui tarefas para toda a sala garantindo:
+ * 1. Prioridade Máxima na Variedade de Tipos: Cada jogador nunca recebe 2 tarefas da mesma mecânica/tipo (ex: apenas 1 de fiação, 1 de motor, etc).
+ * 2. Baralho Balanceado da Sala (Anti-Aglomeração): Distribui as tarefas em rodízio entre os jogadores para evitar que múltiplos jogadores façam a mesma tarefa na mesma partida.
+ * 3. Dispersão Espacial por Salas (Secundário): Se o mapa tiver várias salas, prioriza tarefas em salas distintas para incentivar a circulação.
+ * 4. Limite Físico do Mapa: Se o mapa tiver menos nós que o taskCount, entrega todas as existentes sem duplicar.
  */
 export function getAssignedTasks(
   nodes: TaskNode[],
   taskCount: number,
-  seed: string
+  matchSeed: string,
+  allPlayerIds: string[] = [],
+  currentPlayerId: string = ''
 ): TaskNode[] {
   const tasksOnly = (nodes || []).filter((n) => n.type !== 'EMERGENCY_BUTTON');
+  if (tasksOnly.length === 0) return [];
+
+  // Se o total de tarefas do mapa for menor ou igual ao configurado, entrega todas sem duplicar
   if (tasksOnly.length <= taskCount || taskCount <= 0) {
     return tasksOnly;
   }
 
-  const seedHash = fnv1a(seed);
+  const seedHash = fnv1a(matchSeed);
   const prng = createPrng(seedHash);
 
-  // 1. Agrupar tarefas por cômodo/sala do mapa
-  const tasksByRoom: Record<string, TaskNode[]> = {};
+  // Lista ordenada e estável de todos os IDs de jogadores da sala
+  const uniquePlayerIds = Array.from(
+    new Set(allPlayerIds.length > 0 ? allPlayerIds : [currentPlayerId || 'p-default'])
+  ).sort();
+
+  let playerIndex = uniquePlayerIds.indexOf(currentPlayerId);
+  if (playerIndex === -1) {
+    playerIndex = Math.abs(fnv1a(currentPlayerId)) % Math.max(1, uniquePlayerIds.length);
+  }
+  const totalPlayers = Math.max(1, uniquePlayerIds.length);
+
+  // 1. Agrupar tarefas disponíveis por tipo de minigame
+  const tasksByType: Record<string, TaskNode[]> = {};
   for (const task of tasksOnly) {
-    const roomKey = (task.room_name || 'Setor Geral').trim();
-    if (!tasksByRoom[roomKey]) {
-      tasksByRoom[roomKey] = [];
+    if (!tasksByType[task.type]) {
+      tasksByType[task.type] = [];
     }
-    tasksByRoom[roomKey].push(task);
+    tasksByType[task.type].push(task);
   }
 
-  // 2. Embaralhar as salas e as tarefas internas de cada sala com base na semente do jogador
-  const roomNames = shuffleArray(Object.keys(tasksByRoom), prng);
-  const shuffledTasksByRoom: Record<string, TaskNode[]> = {};
-  for (const r of roomNames) {
-    shuffledTasksByRoom[r] = shuffleArray(tasksByRoom[r], prng);
-  }
+  // 2. Embaralhar os tipos e as tarefas dentro de cada tipo
+  const shuffledTypes = shuffleArray(Object.keys(tasksByType), prng);
+  const shuffledDeck: TaskNode[] = [];
 
-  const selectedTasks: TaskNode[] = [];
-  const selectedTypes = new Set<string>();
-
-  // 3. Rodízio entre salas para garantir que cada tarefa venha de um cômodo diferente (Dispersão Espacial)
-  let roomIndex = 0;
-  let attempts = 0;
-  const maxAttempts = roomNames.length * 4;
-
-  while (selectedTasks.length < taskCount && attempts < maxAttempts) {
-    const currentRoom = roomNames[roomIndex % roomNames.length];
-    const availableInRoom = shuffledTasksByRoom[currentRoom];
-
-    if (availableInRoom && availableInRoom.length > 0) {
-      // Tentar selecionar primeiro uma tarefa cujo tipo ainda não esteja no inventário do jogador
-      const preferredIndex = availableInRoom.findIndex((t) => !selectedTypes.has(t.type));
-      const chosenTask =
-        preferredIndex >= 0
-          ? availableInRoom.splice(preferredIndex, 1)[0]
-          : availableInRoom.shift()!;
-
-      selectedTasks.push(chosenTask);
-      selectedTypes.add(chosenTask.type);
+  // Criar um deck equilibrado intercalando tipos diferentes
+  let hasMore = true;
+  let typeRound = 0;
+  while (hasMore) {
+    hasMore = false;
+    for (const t of shuffledTypes) {
+      const list = tasksByType[t];
+      if (list && typeRound < list.length) {
+        shuffledDeck.push(list[typeRound]);
+        hasMore = true;
+      }
     }
-
-    roomIndex++;
-    attempts++;
+    typeRound++;
   }
 
-  // 4. Se ainda faltar preencher até `taskCount`, completar com as restantes embaralhadas
-  if (selectedTasks.length < taskCount) {
-    const remainingTasks = shuffleArray(
-      tasksOnly.filter((t) => !selectedTasks.some((st) => st.id === t.id)),
-      prng
-    );
-    for (const t of remainingTasks) {
-      if (selectedTasks.length >= taskCount) break;
-      selectedTasks.push(t);
+  // 3. Distribuir as tarefas do deck para cada jogador em rodízio (Round-Robin Dealing)
+  const playerHands: TaskNode[][] = Array.from({ length: totalPlayers }, () => []);
+  const playerTypes: Set<string>[] = Array.from({ length: totalPlayers }, () => new Set());
+  const playerRooms: Set<string>[] = Array.from({ length: totalPlayers }, () => new Set());
+
+  // Rodadas de distribuição (1 tarefa por jogador por rodada até atingir taskCount)
+  for (let round = 0; round < taskCount; round++) {
+    const availableForRound = shuffleArray([...shuffledDeck], prng);
+
+    for (let pIdx = 0; pIdx < totalPlayers; pIdx++) {
+      const currentHand = playerHands[pIdx];
+      const currentTypes = playerTypes[pIdx];
+      const currentRooms = playerRooms[pIdx];
+
+      if (currentHand.length >= taskCount) continue;
+
+      // 1ª Prioridade: Tarefa com tipo inédito para este jogador E sala inédita
+      let bestIndex = availableForRound.findIndex(
+        (t) =>
+          !currentHand.some((st) => st.id === t.id) &&
+          !currentTypes.has(t.type) &&
+          (!t.room_name || !currentRooms.has(t.room_name))
+      );
+
+      // 2ª Prioridade: Tarefa com tipo inédito (mesmo que repita sala)
+      if (bestIndex === -1) {
+        bestIndex = availableForRound.findIndex(
+          (t) =>
+            !currentHand.some((st) => st.id === t.id) &&
+            !currentTypes.has(t.type)
+        );
+      }
+
+      // 3ª Prioridade: Qualquer tarefa não repetida no inventário do jogador
+      if (bestIndex === -1) {
+        bestIndex = availableForRound.findIndex(
+          (t) => !currentHand.some((st) => st.id === t.id)
+        );
+      }
+
+      if (bestIndex !== -1) {
+        const chosen = availableForRound.splice(bestIndex, 1)[0];
+        currentHand.push(chosen);
+        currentTypes.add(chosen.type);
+        if (chosen.room_name) currentRooms.add(chosen.room_name);
+      }
     }
   }
 
-  return selectedTasks.slice(0, taskCount);
+  const myHand = playerHands[playerIndex] || [];
+
+  // Se por alguma razão o jogador ainda tiver menos que taskCount e houver tasks não repetidas
+  if (myHand.length < taskCount) {
+    const remaining = tasksOnly.filter((t) => !myHand.some((st) => st.id === t.id));
+    for (const t of remaining) {
+      if (myHand.length >= taskCount) break;
+      myHand.push(t);
+    }
+  }
+
+  return myHand.slice(0, taskCount);
 }
