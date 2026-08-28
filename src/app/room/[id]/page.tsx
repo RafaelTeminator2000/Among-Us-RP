@@ -12,6 +12,7 @@ import { generateUUID } from '@/lib/utils';
 import { getRoomSyncStateAction } from '@/app/room/actions';
 import { PlayerTaskList } from '@/components/tasks/PlayerTaskList';
 import { ImpostorKillButton } from '@/components/game/ImpostorKillButton';
+import { ImpostorActionDrawer } from '@/components/game/ImpostorActionDrawer';
 import { VotingSessionScreen } from '@/components/game/VotingSessionScreen';
 import { EliminationScreen } from '@/components/minigames/EliminationScreen';
 import { TaskQrReader } from '@/components/minigames/TaskQrReader';
@@ -1174,18 +1175,22 @@ export default function RoomPage({ params }: RoomPageProps) {
     }));
   }, [allPlayers, rolesMap, playerId, playerRole, roomStatus]);
 
-  // Disparar Sabotagem de Luzes pelo Impostor
-  const handleTriggerLightsSabotage = async () => {
-    setIsLightsSabotaged(true);
+  // Disparar Sabotagem pelo Impostor (Luzes, Reator, O2, Comunicações)
+  const handleTriggerSabotage = async (type: 'LIGHTS' | 'REACTOR' | 'O2' | 'COMMS' = 'LIGHTS') => {
     setIsSabotaged(true);
     playSiren();
-    await triggerSabotage('LIGHTS');
+    if (type === 'LIGHTS') {
+      setIsLightsSabotaged(true);
+      await triggerSabotage('LIGHTS');
 
-    if (isValidUuid(roomId)) {
-      await supabase
-        .from('rooms')
-        .update({ is_lights_sabotaged: true })
-        .eq('id', roomId);
+      if (isValidUuid(roomId)) {
+        await supabase
+          .from('rooms')
+          .update({ is_lights_sabotaged: true })
+          .eq('id', roomId);
+      }
+    } else {
+      await triggerSabotage(type as any);
     }
   };
 
@@ -1729,16 +1734,6 @@ export default function RoomPage({ params }: RoomPageProps) {
                 <span>🧪 TESTAR</span>
               </button>
             )}
-
-            <div
-              className={`px-3 py-1 rounded-full text-xs font-bold ${
-                playerRole === 'IMPOSTOR'
-                  ? 'bg-red-600/20 text-red-400 border border-red-500/60'
-                  : 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/60'
-              }`}
-            >
-              {playerRole === 'IMPOSTOR' ? '🔪 IMPOSTOR' : '🟢 TRIPULANTE'}
-            </div>
           </div>
         </div>
 
@@ -1770,24 +1765,39 @@ export default function RoomPage({ params }: RoomPageProps) {
       </main>
 
       {/* Barra Inferior de Ações RP (Zona do Polegar) */}
-      <div className="z-20 pt-2 flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => setShowReportScanner(true)}
-          className="flex-1 h-[54px] rounded-2xl btn-3d-red flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer"
-        >
-          <Megaphone className="w-5 h-5 stroke-[2.5]" />
-          <span>REPORTAR</span>
-        </button>
+      <div className="z-20 pt-2 flex flex-col gap-1.5">
+        {/* Gaveta Retrátil de Ações Exclusivas para Impostor */}
+        {playerRole === 'IMPOSTOR' && roomStatus === 'PLAYING' && playerStatus === 'ALIVE' && (
+          <ImpostorActionDrawer
+            roomId={roomId}
+            roomCode={isValidUuid(roomId) ? undefined : roomId}
+            impostorId={playerId}
+            players={allPlayers}
+            isLightsSabotaged={isLightsSabotaged}
+            onTriggerSabotage={handleTriggerSabotage}
+            sendBroadcast={broadcastEvent}
+          />
+        )}
 
-        <button
-          type="button"
-          onClick={() => setActiveMinigame('qr')}
-          className="flex-1 h-[54px] rounded-2xl btn-3d-cyan flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer"
-        >
-          <QrCode className="w-5 h-5 stroke-[2.5]" />
-          <span>USAR / ESCANEAR</span>
-        </button>
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setShowReportScanner(true)}
+            className="flex-1 h-[54px] rounded-2xl btn-3d-red flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer"
+          >
+            <Megaphone className="w-5 h-5 stroke-[2.5]" />
+            <span>REPORTAR</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveMinigame('qr')}
+            className="flex-1 h-[54px] rounded-2xl btn-3d-cyan flex items-center justify-center gap-2 text-xs font-black uppercase shadow-lg active:scale-95 cursor-pointer"
+          >
+            <QrCode className="w-5 h-5 stroke-[2.5]" />
+            <span>USAR / ESCANEAR</span>
+          </button>
+        </div>
       </div>
 
       {/* Modal de Scanner de Report de Corpos */}
@@ -2361,38 +2371,6 @@ export default function RoomPage({ params }: RoomPageProps) {
         />
       )}
 
-      {/* Visão Noturna e Alerta de Sabotagem Exclusivos para Impostor */}
-      {playerRole === 'IMPOSTOR' && roomStatus === 'PLAYING' && (
-        <>
-          {isLightsSabotaged && (
-            <div className="fixed top-24 left-4 right-4 z-40 bg-red-950/90 border border-red-500/80 text-red-200 text-xs font-bold p-2.5 rounded-2xl text-center shadow-lg backdrop-blur-md animate-pulse flex items-center justify-center gap-2">
-              <Zap className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-              <span>SABOTAGEM DE LUZES ATIVA (VISÃO NOTURNA DE IMPOSTOR)</span>
-            </div>
-          )}
-
-          <div className="fixed bottom-20 right-6 z-30 flex flex-col gap-3 items-end">
-            {!isLightsSabotaged && (
-              <button
-                onClick={handleTriggerLightsSabotage}
-                className="flex items-center gap-2 bg-gradient-to-r from-yellow-600 to-amber-700 hover:from-yellow-500 hover:to-amber-600 text-white text-xs font-black uppercase px-4 py-3 rounded-2xl shadow-[0_0_20px_rgba(245,158,11,0.4)] border border-amber-400/40 transition-all active:scale-95"
-              >
-                <Zap className="w-4 h-4 fill-white" />
-                <span>Sabotar Luzes</span>
-              </button>
-            )}
-
-            {/* Botão de Abate */}
-            <ImpostorKillButton
-              roomId={roomId}
-              roomCode={isValidUuid(roomId) ? undefined : roomId}
-              impostorId={playerId}
-              players={allPlayers}
-              sendBroadcast={broadcastEvent}
-            />
-          </div>
-        </>
-      )}
 
       {/* Modal de Vitória dos Tripulantes / Impostores com Contagem Regressiva */}
       {victoryModal && (
@@ -2731,7 +2709,7 @@ export default function RoomPage({ params }: RoomPageProps) {
                   type="button"
                   onClick={() => {
                     setShowTestDrawer(false);
-                    handleTriggerLightsSabotage();
+                    handleTriggerSabotage('LIGHTS');
                   }}
                   className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black uppercase flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                 >

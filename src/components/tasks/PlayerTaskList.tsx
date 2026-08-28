@@ -88,7 +88,6 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
 }) => {
   // Filtrar tarefas regulares para exibição na lista informativa
   const displayTasks = tasks.filter((t) => t.type !== 'EMERGENCY_BUTTON');
-  const isImpostor = playerRole === 'IMPOSTOR';
 
   // Monitorar tempo restante da incubação da amostra (MedBay)
   // null = não iniciada | > 0 = incubando (segundos restantes) | 0 = incubação concluída (pronta)
@@ -168,26 +167,7 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
   };
 
   return (
-    <div
-      className={`w-full border rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 font-mono select-none pointer-events-none transition-colors ${
-        isImpostor
-          ? 'bg-[#180808]/90 border-red-900/60 shadow-[0_0_20px_rgba(239,68,68,0.1)]'
-          : 'bg-[#0b1120]/90 border-slate-800'
-      }`}
-    >
-      {/* Cabeçalho de Tarefas Falsas exclusivo para Impostores */}
-      {isImpostor && (
-        <div className="flex items-center justify-between pb-2.5 border-b border-red-900/50">
-          <span className="text-[11px] font-black uppercase tracking-wider text-red-400 flex items-center gap-1.5">
-            <span>🔪</span>
-            <span>TAREFAS FALSAS (DISFARCE)</span>
-          </span>
-          <span className="text-[9px] font-bold text-red-300/60 bg-red-950/80 px-2 py-0.5 rounded-full border border-red-800/40">
-            SIMULAÇÃO
-          </span>
-        </div>
-      )}
-
+    <div className="w-full border rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 font-mono select-none pointer-events-none transition-colors bg-[#0b1120]/90 border-slate-800">
       {displayTasks.map((task, index) => {
         const isCompleted =
           completedTasks.includes(task.id) ||
@@ -211,35 +191,17 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
             <div className="flex items-center gap-3.5 min-w-0">
               {/* Círculo indicador de status */}
               {isCompleted ? (
-                <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                    isImpostor
-                      ? 'bg-red-500/20 border-red-500 text-red-400'
-                      : 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                  }`}
-                >
+                <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 bg-emerald-500/20 border-emerald-500 text-emerald-400">
                   <Check className="w-3.5 h-3.5 stroke-[3]" />
                 </div>
               ) : (
-                <div
-                  className={`w-5 h-5 rounded-full border-2 shrink-0 ${
-                    isImpostor
-                      ? 'border-red-900/80 bg-red-950/60'
-                      : 'border-slate-700 bg-slate-950/80'
-                  }`}
-                />
+                <div className="w-5 h-5 rounded-full border-2 shrink-0 border-slate-700 bg-slate-950/80" />
               )}
 
               {/* Nome da Tarefa */}
               <span
                 className={`text-base font-bold tracking-wider truncate ${
-                  isCompleted
-                    ? isImpostor
-                      ? 'line-through text-red-700/60'
-                      : 'line-through text-slate-500'
-                    : isImpostor
-                    ? 'text-red-100'
-                    : 'text-white'
+                  isCompleted ? 'line-through text-slate-500' : 'text-white'
                 }`}
               >
                 {taskName}
