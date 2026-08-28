@@ -340,6 +340,11 @@ export default function RoomPage({ params }: RoomPageProps) {
         }
       }
 
+      if (room.status === 'PLAYING' && room.updated_at) {
+        const timeFromRoom = new Date(room.updated_at).getTime();
+        setGameStartTime((prev) => (prev === 0 ? timeFromRoom : prev));
+      }
+
       if (room.is_lights_sabotaged) {
         setIsLightsSabotaged(true);
         setIsSabotaged(true);

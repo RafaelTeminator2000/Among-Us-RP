@@ -329,6 +329,8 @@ export async function getRoomSyncStateAction(payload: {
         is_lights_sabotaged: (room as any).is_lights_sabotaged || false,
         is_reactor_sabotaged: (room as any).is_reactor_sabotaged || false,
         is_o2_sabotaged: (room as any).is_o2_sabotaged || false,
+        created_at: room.created_at,
+        updated_at: room.updated_at,
       },
       player,
       allPlayers,
