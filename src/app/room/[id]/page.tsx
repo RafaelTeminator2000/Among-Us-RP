@@ -103,13 +103,50 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
     return null;
   });
-  const [playerId, setPlayerId] = useState<string>('');
-  const [playerName, setPlayerName] = useState<string>('Jogador');
-  const [playerColor, setPlayerColor] = useState<string>('#ef4444');
+  const [playerId, setPlayerId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const fromUrl = urlParams.get('playerId');
+      if (fromUrl) return fromUrl;
+      const fromStorage =
+        localStorage.getItem(`room_player_${roomId}`) ||
+        localStorage.getItem('current_player_id');
+      if (fromStorage) return fromStorage;
+    }
+    return '';
+  });
+  const [playerName, setPlayerName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const fromStorage =
+        localStorage.getItem(`player_name_${roomId}`) ||
+        localStorage.getItem('current_player_name');
+      if (fromStorage) return fromStorage;
+    }
+    return 'Jogador';
+  });
+  const [playerColor, setPlayerColor] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const fromStorage =
+        localStorage.getItem(`player_color_${roomId}`) ||
+        localStorage.getItem('current_player_color');
+      if (fromStorage) return fromStorage;
+    }
+    return '#ef4444';
+  });
   const [reporterName, setReporterName] = useState<string>('Tripulante');
   const [discussionTimeSeconds, setDiscussionTimeSeconds] = useState<number>(30);
   const [votingTimeSeconds, setVotingTimeSeconds] = useState<number>(35);
-  const [allPlayers, setAllPlayers] = useState<PlayerGameState[]>([]);
+  const [allPlayers, setAllPlayers] = useState<PlayerGameState[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored =
+          localStorage.getItem(`room_all_players_${roomId}`) ||
+          localStorage.getItem(`room_all_players_${roomId.toUpperCase()}`);
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return [];
+  });
   const [roomUuid, setRoomUuid] = useState<string>(roomId);
   const [roomCode, setRoomCode] = useState<string>(() => {
     if (!isValidUuid(roomId)) return roomId.toUpperCase();
@@ -122,8 +159,22 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
     return '';
   });
-  const [mapData, setMapData] = useState<ScratchMapPlan | null>(null);
-  const [taskCount, setTaskCount] = useState<number>(4);
+  const [mapData, setMapData] = useState<ScratchMapPlan | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(`room_map_data_${roomId}`);
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return null;
+  });
+  const [taskCount, setTaskCount] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(`room_task_count_${roomId}`);
+      if (stored) return Number(stored);
+    }
+    return 4;
+  });
   const [gameStartTime, setGameStartTime] = useState<number>(() => {
     try {
       if (typeof window !== 'undefined') {
@@ -257,6 +308,63 @@ export default function RoomPage({ params }: RoomPageProps) {
       localStorage.setItem(`sabotage_base_cd_${roomId}`, String(sabotageBaseCooldown));
     }
   }, [sabotageBaseCooldown, roomId]);
+  const [rolesMap, setRolesMap] = useState<Record<string, 'CREWMATE' | 'IMPOSTOR'>>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const stored =
+          localStorage.getItem(`room_roles_${roomId}`) ||
+          localStorage.getItem(`room_roles_${roomId.toUpperCase()}`);
+        if (stored) return JSON.parse(stored);
+      }
+    } catch {}
+    return {};
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && allPlayers.length > 0) {
+      localStorage.setItem(`room_all_players_${roomId}`, JSON.stringify(allPlayers));
+    }
+  }, [allPlayers, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && mapData) {
+      localStorage.setItem(`room_map_data_${roomId}`, JSON.stringify(mapData));
+    }
+  }, [mapData, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`room_task_count_${roomId}`, String(taskCount));
+    }
+  }, [taskCount, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && Object.keys(rolesMap).length > 0) {
+      localStorage.setItem(`room_roles_${roomId}`, JSON.stringify(rolesMap));
+    }
+  }, [rolesMap, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && playerId) {
+      localStorage.setItem(`room_player_${roomId}`, playerId);
+      localStorage.setItem('current_player_id', playerId);
+    }
+  }, [playerId, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && playerName && playerName !== 'Jogador') {
+      localStorage.setItem(`player_name_${roomId}`, playerName);
+      localStorage.setItem('current_player_name', playerName);
+    }
+  }, [playerName, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && playerColor) {
+      localStorage.setItem(`player_color_${roomId}`, playerColor);
+      localStorage.setItem('current_player_color', playerColor);
+    }
+  }, [playerColor, roomId]);
+
   const [activeMinigame, setActiveMinigame] = useState<
     | 'qr'
     | 'wires'
@@ -277,17 +385,6 @@ export default function RoomPage({ params }: RoomPageProps) {
     | null
   >(null);
   const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
-  const [rolesMap, setRolesMap] = useState<Record<string, 'CREWMATE' | 'IMPOSTOR'>>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const stored =
-          localStorage.getItem(`room_roles_${roomId}`) ||
-          localStorage.getItem(`room_roles_${roomId.toUpperCase()}`);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch {}
-    return {};
-  });
   const [victoryModal, setVictoryModal] = useState<{
     winnerTeam?: 'CREWMATE' | 'IMPOSTOR';
     impostorName?: string;
@@ -295,12 +392,33 @@ export default function RoomPage({ params }: RoomPageProps) {
     reason?: string;
   } | null>(null);
 
-  // Lista de tarefas atribuídas exclusivamente para este jogador (Variedade Máxima de Tipos e Dispersão por Salas)
+  // Lista de tarefas atribuídas exclusivamente para este jogador (Persistente no localStorage para evitar troca de IDs no refresh)
   const assignedTasks = useMemo(() => {
     const nodes = mapData?.nodes && mapData.nodes.length > 0 ? mapData.nodes : DEFAULT_DEMO_MAP.nodes;
     const playerSeed = playerId || playerName || 'player';
     const matchSeed = `${roomUuid || roomId}_${gameStartTime || 0}_${playerSeed}`;
-    return getAssignedTasks(nodes, taskCount, matchSeed);
+    const storageKey = `assigned_tasks_${roomId}_${playerSeed}`;
+
+    // Tentar carregar tarefas atribuídas salvas anteriormente para manter integridade das tarefas concluídas
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed as TaskNode[];
+          }
+        }
+      } catch {}
+    }
+
+    const generated = getAssignedTasks(nodes, taskCount, matchSeed);
+    if (typeof window !== 'undefined' && generated.length > 0) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(generated));
+      } catch {}
+    }
+    return generated;
   }, [mapData, taskCount, roomUuid, roomId, gameStartTime, playerId, playerName]);
   const [roleRevealToast, setRoleRevealToast] = useState<{
     role: 'CREWMATE' | 'IMPOSTOR';
@@ -359,6 +477,9 @@ export default function RoomPage({ params }: RoomPageProps) {
       localStorage.removeItem(`critical_sabotage_until_${roomId}`);
       localStorage.removeItem(`kill_cooldown_until_${roomId}_${playerId}`);
       localStorage.removeItem(`kill_cooldown_until_${roomId}_p-self`);
+      localStorage.removeItem(`assigned_tasks_${roomId}_${playerId}`);
+      localStorage.removeItem(`assigned_tasks_${roomId}_${playerName}`);
+      localStorage.removeItem(`assigned_tasks_${roomId}_p-self`);
       const startUntil = Date.now() + 60 * 1000;
       localStorage.setItem(`sabotage_until_${roomId}`, String(startUntil));
     }
@@ -488,8 +609,24 @@ export default function RoomPage({ params }: RoomPageProps) {
         setGameStartTime((prev) => (prev === 0 ? timeFromRoom : prev));
       }
 
-      if (room.is_lights_sabotaged) {
-        setActiveSabotages((prev) => Array.from(new Set([...prev, 'LIGHTS' as SabotageType])));
+      // Sincronizar sabotagens ativas da sala
+      const incomingSabotages: SabotageType[] = [];
+      if (room.is_lights_sabotaged) incomingSabotages.push('LIGHTS');
+      if ((room as any).is_reactor_sabotaged) incomingSabotages.push('REACTOR');
+      if ((room as any).is_o2_sabotaged) incomingSabotages.push('O2');
+      if ((room as any).is_comms_sabotaged) incomingSabotages.push('COMMS');
+
+      if (incomingSabotages.length > 0) {
+        setActiveSabotages((prev) => Array.from(new Set([...prev, ...incomingSabotages])));
+        if (incomingSabotages.includes('REACTOR') || incomingSabotages.includes('O2')) {
+          const critUntil = typeof window !== 'undefined' ? localStorage.getItem(`critical_sabotage_until_${roomId}`) : null;
+          if (critUntil) {
+            const remaining = Math.max(0, Math.ceil((Number(critUntil) - Date.now()) / 1000));
+            setSabotageSecondsLeft(remaining > 0 ? remaining : null);
+          } else {
+            setSabotageSecondsLeft(45);
+          }
+        }
       }
 
       if (player) {
@@ -504,7 +641,7 @@ export default function RoomPage({ params }: RoomPageProps) {
         }
         if (player.status) setPlayerStatus(player.status as any);
         if (Array.isArray(player.completed_tasks)) {
-          setCompletedTasks(player.completed_tasks as string[]);
+          setCompletedTasks((prev) => Array.from(new Set([...prev, ...(player.completed_tasks as string[])])));
         }
       }
 
@@ -516,7 +653,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           role: (p.role as any) || 'CREWMATE',
           is_alive: p.status === 'ALIVE',
           is_host: false,
-          completed_tasks: Array.isArray(p.completed_tasks) ? p.completed_tasks.length : 0,
+          completed_tasks: Array.isArray(p.completed_tasks) ? p.completed_tasks.length : (typeof p.completed_tasks === 'number' ? p.completed_tasks : 0),
           total_tasks: taskCount,
           has_voted: false,
           voted_for_id: null,
@@ -662,6 +799,9 @@ export default function RoomPage({ params }: RoomPageProps) {
         localStorage.removeItem(`o2_uses_${roomId}`);
         localStorage.removeItem(`critical_sabotage_until_${roomId}`);
         localStorage.removeItem(`kill_cooldown_until_${roomId}_${playerId}`);
+        localStorage.removeItem(`assigned_tasks_${roomId}_${playerId}`);
+        localStorage.removeItem(`assigned_tasks_${roomId}_${playerName}`);
+        localStorage.removeItem(`assigned_tasks_${roomId}_p-self`);
         const startUntil = Date.now() + baseCd * 1000;
         localStorage.setItem(`sabotage_until_${roomId}`, String(startUntil));
       }
@@ -1151,6 +1291,9 @@ export default function RoomPage({ params }: RoomPageProps) {
         localStorage.removeItem(`inspect_sample_anomaly_${roomId}_${playerId}`);
         localStorage.removeItem(`inspect_sample_start_${roomId}_p-self`);
         localStorage.removeItem(`inspect_sample_anomaly_${roomId}_p-self`);
+        localStorage.removeItem(`assigned_tasks_${roomId}_${playerId}`);
+        localStorage.removeItem(`assigned_tasks_${roomId}_${playerName}`);
+        localStorage.removeItem(`assigned_tasks_${roomId}_p-self`);
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('sample_status_changed'));
         }
@@ -1216,6 +1359,9 @@ export default function RoomPage({ params }: RoomPageProps) {
       localStorage.removeItem(`kill_cooldown_until_${roomId}_${playerId}`);
       localStorage.removeItem(`kill_cooldown_until_${roomId}_p-self`);
       localStorage.removeItem(`sabotage_until_${roomId}`);
+      localStorage.removeItem(`assigned_tasks_${roomId}_${playerId}`);
+      localStorage.removeItem(`assigned_tasks_${roomId}_${playerName}`);
+      localStorage.removeItem(`assigned_tasks_${roomId}_p-self`);
     }
     setPlayerStatus('ALIVE');
     setActiveSabotages([]);
