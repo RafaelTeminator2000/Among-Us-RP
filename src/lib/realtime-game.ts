@@ -409,6 +409,17 @@ export function useRealtimeGame({
         .on('broadcast', { event: 'impostor_victory' }, (payload) => {
           if (callbacksRef.current.onImpostorVictory) callbacksRef.current.onImpostorVictory(payload.payload);
         })
+        .on('broadcast', { event: 'RETURN_TO_LOBBY' }, () => {
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');
+        })
+        .on('broadcast', { event: 'return_to_lobby' }, () => {
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');
+        })
+        .on('broadcast', { event: 'ROOM_STATUS_CHANGED' }, (payload) => {
+          if (payload?.payload?.status && callbacksRef.current.onRoomStatusChanged) {
+            callbacksRef.current.onRoomStatusChanged(payload.payload.status);
+          }
+        })
         .on('broadcast', { event: 'ROOM_CLOSED' }, (payload) => {
           if (callbacksRef.current.onRoomClosed) callbacksRef.current.onRoomClosed(payload.payload || {});
         })

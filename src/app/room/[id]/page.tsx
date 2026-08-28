@@ -322,7 +322,22 @@ export default function RoomPage({ params }: RoomPageProps) {
 
       if (room.status) {
         setRoomStatus((prev) => {
-          if (prev !== room.status) return room.status as RoomStatus;
+          if (prev !== room.status) {
+            if (room.status === 'LOBBY' || room.status === 'FINISHED') {
+              setActiveSabotageType(null);
+              setSabotageSecondsLeft(null);
+              setIsLightsSabotaged(false);
+              setIsSabotaged(false);
+              setActiveMinigame(null);
+              setSelectedTask(null);
+              setShowBreakerGame(false);
+              setShowCommsGame(false);
+              setShowReactorGame(false);
+              setShowO2Game(false);
+              setShowReportScanner(false);
+            }
+            return room.status as RoomStatus;
+          }
           return prev;
         });
         if (typeof window !== 'undefined') {
@@ -503,6 +518,15 @@ export default function RoomPage({ params }: RoomPageProps) {
       setCompletedTasks([]);
       setIsLightsSabotaged(false);
       setIsSabotaged(false);
+      setActiveSabotageType(null);
+      setSabotageSecondsLeft(null);
+      setActiveMinigame(null);
+      setSelectedTask(null);
+      setShowBreakerGame(false);
+      setShowCommsGame(false);
+      setShowReactorGame(false);
+      setShowO2Game(false);
+      setShowReportScanner(false);
       setPlayerStatus('ALIVE');
 
       const tc = payload.rules?.taskCount || payload.rules?.task_count;
@@ -552,6 +576,17 @@ export default function RoomPage({ params }: RoomPageProps) {
       stopAll();
       playTaskBeep();
       setRoomStatus('FINISHED');
+      setActiveSabotageType(null);
+      setSabotageSecondsLeft(null);
+      setIsLightsSabotaged(false);
+      setIsSabotaged(false);
+      setActiveMinigame(null);
+      setSelectedTask(null);
+      setShowBreakerGame(false);
+      setShowCommsGame(false);
+      setShowReactorGame(false);
+      setShowO2Game(false);
+      setShowReportScanner(false);
       setVictoryModal((prev) => {
         if (prev) return prev;
         return {
@@ -566,6 +601,17 @@ export default function RoomPage({ params }: RoomPageProps) {
       stopAll();
       playEmergencyBuzzer();
       setRoomStatus('FINISHED');
+      setActiveSabotageType(null);
+      setSabotageSecondsLeft(null);
+      setIsLightsSabotaged(false);
+      setIsSabotaged(false);
+      setActiveMinigame(null);
+      setSelectedTask(null);
+      setShowBreakerGame(false);
+      setShowCommsGame(false);
+      setShowReactorGame(false);
+      setShowO2Game(false);
+      setShowReportScanner(false);
       setVictoryModal((prev) => {
         if (prev) return prev;
         return {
@@ -702,11 +748,16 @@ export default function RoomPage({ params }: RoomPageProps) {
         setCompletedTasks([]);
         setIsLightsSabotaged(false);
         setIsSabotaged(false);
+        setActiveSabotageType(null);
+        setSabotageSecondsLeft(null);
         setVictoryModal(null);
         setSelectedTask(null);
         setActiveMinigame(null);
         setShowReportScanner(false);
         setShowBreakerGame(false);
+        setShowCommsGame(false);
+        setShowReactorGame(false);
+        setShowO2Game(false);
         setAllPlayers((prev) =>
           prev.map((p) => ({
             ...p,
@@ -1017,11 +1068,16 @@ export default function RoomPage({ params }: RoomPageProps) {
     setCompletedTasks([]);
     setIsLightsSabotaged(false);
     setIsSabotaged(false);
+    setActiveSabotageType(null);
+    setSabotageSecondsLeft(null);
     setVictoryModal(null);
     setSelectedTask(null);
     setActiveMinigame(null);
     setShowReportScanner(false);
     setShowBreakerGame(false);
+    setShowCommsGame(false);
+    setShowReactorGame(false);
+    setShowO2Game(false);
 
     try {
       localStorage.removeItem(`inspect_sample_start_${roomId}_${playerId}`);
@@ -1213,14 +1269,30 @@ export default function RoomPage({ params }: RoomPageProps) {
           ? '💥 FUSÃO DO REATOR! O reator entrou em colapso e destruiu a nave.'
           : '💨 ESGOTAMENTO DE OXIGÊNIO! As reservas de O2 zeraram e a tripulação sucumbiu.';
 
+      // Imediatamente fecha todos os minigames e limpa estados de sabotagem
+      setActiveSabotageType(null);
+      setSabotageSecondsLeft(null);
+      setIsLightsSabotaged(false);
+      setIsSabotaged(false);
+      setActiveMinigame(null);
+      setSelectedTask(null);
+      setShowBreakerGame(false);
+      setShowCommsGame(false);
+      setShowReactorGame(false);
+      setShowO2Game(false);
+      setShowReportScanner(false);
+
+      setRoomStatus('FINISHED');
       setVictoryModal({
         winnerTeam: 'IMPOSTOR',
+        impostorName: 'Os Impostores',
         reason,
         countdown: 10,
       });
 
       broadcastEvent('IMPOSTOR_VICTORY', {
         winnerTeam: 'IMPOSTOR',
+        impostorName: 'Os Impostores',
         reason,
         timestamp: Date.now(),
       });
