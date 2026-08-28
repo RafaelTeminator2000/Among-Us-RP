@@ -2759,6 +2759,7 @@ export default function RoomPage({ params }: RoomPageProps) {
                 // Sabotagem de Luzes
                 if (
                   cleanCode.includes('TASK_BREAKER') ||
+                  cleanCode.includes('SABOTAGE_LIGHTS') ||
                   cleanCode.includes('LIGHTS') ||
                   cleanCode.includes('POINT_01')
                 ) {
@@ -2767,21 +2768,41 @@ export default function RoomPage({ params }: RoomPageProps) {
                     setSelectedTask(null);
                     setShowBreakerGame(true);
                     return;
+                  } else {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚡ O Quadro de Luz e os disjuntores estão operando normalmente.');
+                    setTimeout(() => setTaskFeedback(null), 3000);
+                    return;
                   }
                 }
 
                 // Sabotagem de Comunicações
-                if (cleanCode.includes('TASK_COMMS') || cleanCode.includes('COMMS')) {
+                if (
+                  cleanCode.includes('TASK_COMMS') ||
+                  cleanCode.includes('SABOTAGE_COMMS') ||
+                  cleanCode.includes('COMMS')
+                ) {
                   if (isCommsSabotaged) {
                     setActiveMinigame(null);
                     setSelectedTask(null);
                     setShowCommsGame(true);
                     return;
+                  } else {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('📡 As Comunicações e o rádio estão operando normalmente.');
+                    setTimeout(() => setTaskFeedback(null), 3000);
+                    return;
                   }
                 }
 
                 // Sabotagem de Reator (Crítica)
-                if (cleanCode.includes('TASK_REACTOR') || cleanCode.includes('REACTOR')) {
+                if (
+                  cleanCode.includes('TASK_REACTOR') ||
+                  cleanCode.includes('SABOTAGE_REACTOR') ||
+                  cleanCode.includes('REACTOR')
+                ) {
                   if (isReactorSabotaged) {
                     setActiveMinigame(null);
                     setSelectedTask(null);
@@ -2793,6 +2814,7 @@ export default function RoomPage({ params }: RoomPageProps) {
                 // Sabotagem de Oxigênio (O2 - Crítica)
                 if (
                   cleanCode.includes('TASK_O2') ||
+                  cleanCode.includes('SABOTAGE_O2') ||
                   cleanCode.includes('CLEAN_O2') ||
                   cleanCode.includes('OXYGEN') ||
                   cleanCode.includes('O2')

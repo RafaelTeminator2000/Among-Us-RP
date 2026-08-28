@@ -41,6 +41,12 @@ const KNOWN_TASK_TOKENS = [
   'TASK_DIVERT_POWER',
   'TASK_UPLOAD_DATA',
   'TASK_BREAKER',
+  'TASK_COMMS',
+  'TASK_O2',
+  'SABOTAGE_LIGHTS',
+  'SABOTAGE_COMMS',
+  'SABOTAGE_REACTOR',
+  'SABOTAGE_O2',
   'WIRE',
   'CARD_SWIPE',
   'MANIFOLDS',
@@ -56,6 +62,10 @@ const KNOWN_TASK_TOKENS = [
   'DIVERT_POWER',
   'UPLOAD_DATA',
   'BREAKER',
+  'LIGHTS',
+  'COMMS',
+  'OXYGEN',
+  'O2',
 ];
 
 export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
