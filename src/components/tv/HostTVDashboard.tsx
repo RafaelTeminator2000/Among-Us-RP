@@ -19,14 +19,18 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
   const [players, setPlayers] = useState<PlayerGameState[]>(initialPlayers);
   const [gameState, setGameState] = useState<'LOBBY' | 'PLAYING' | 'EMERGENCY_MEETING' | 'ENDED' | 'FINISHED'>('LOBBY');
   const [taskCount, setTaskCount] = useState<number>(4);
-  const [isLightsSabotaged, setIsLightsSabotaged] = useState(false);
-  const [activeSabotageType, setActiveSabotageType] = useState<SabotageType | null>(null);
+  const [activeSabotages, setActiveSabotages] = useState<SabotageType[]>([]);
   const [sabotageSecondsLeft, setSabotageSecondsLeft] = useState<number | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [gameEvents, setGameEvents] = useState<GameEventRecord[]>([]);
   const [displayCode, setDisplayCode] = useState<string>(propRoomCode || roomId.substring(0, 4).toUpperCase());
   const [winnerTeam, setWinnerTeam] = useState<'CREWMATE' | 'IMPOSTOR' | null>(null);
   const [isRoomClosed, setIsRoomClosed] = useState(false);
+
+  const isLightsSabotaged = activeSabotages.includes('LIGHTS');
+  const isCommsSabotaged = activeSabotages.includes('COMMS');
+  const isReactorSabotaged = activeSabotages.includes('REACTOR');
+  const isO2Sabotaged = activeSabotages.includes('O2');
 
   const { initAudio, playSiren, playEmergencyBuzzer, stopAll } = useGameAudio();
   const supabase = createClient();
@@ -55,7 +59,9 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
             const tc = (roomByCode.rules as any).task_count || (roomByCode.rules as any).taskCount;
             if (tc) setTaskCount(Number(tc));
           }
-          if ((roomByCode as any).is_lights_sabotaged) setIsLightsSabotaged(true);
+          if ((roomByCode as any).is_lights_sabotaged) {
+            setActiveSabotages((prev) => Array.from(new Set([...prev, 'LIGHTS' as SabotageType])));
+          }
         }
       } else {
         const { data: room } = await supabase
@@ -71,7 +77,9 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
             const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
             if (tc) setTaskCount(Number(tc));
           }
-          if ((room as any).is_lights_sabotaged) setIsLightsSabotaged(true);
+          if ((room as any).is_lights_sabotaged) {
+            setActiveSabotages((prev) => Array.from(new Set([...prev, 'LIGHTS' as SabotageType])));
+          }
         }
       }
 
@@ -150,6 +158,18 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     }
   }, [gameState, roomId, stopAll, supabase]);
 
+  // Timer para contagem regressiva da TV durante sabotagens críticas
+  useEffect(() => {
+    if ((!isReactorSabotaged && !isO2Sabotaged) || sabotageSecondsLeft === null) return;
+    if (sabotageSecondsLeft <= 0) return;
+
+    const timer = setInterval(() => {
+      setSabotageSecondsLeft((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isReactorSabotaged, isO2Sabotaged, sabotageSecondsLeft]);
+
   // Hook de Sincronização em Tempo Real (WebSocket Supabase)
   const { connectionState } = useRealtimeGame({
     roomId,
@@ -160,34 +180,54 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     onGameStarted: (payload) => {
       const tc = payload?.rules?.taskCount || payload?.rules?.task_count;
       if (tc) setTaskCount(Number(tc));
+      setActiveSabotages([]);
+      setSabotageSecondsLeft(null);
+      stopAll();
     },
     onRoomStatusChanged: (newStatus) => {
       setGameState(newStatus as any);
+      if (newStatus === 'LOBBY' || newStatus === 'ENDED' || newStatus === 'FINISHED') {
+        setActiveSabotages([]);
+        setSabotageSecondsLeft(null);
+        stopAll();
+      }
     },
     onCrewmateVictory: (payload) => {
       setWinnerTeam('CREWMATE');
       setGameState('ENDED');
+      stopAll();
     },
     onImpostorVictory: (payload) => {
       setWinnerTeam('IMPOSTOR');
       setGameState('ENDED');
+      stopAll();
     },
     onSabotageTriggered: (payload) => {
       const type = ((payload?.type || 'LIGHTS') as string).toUpperCase() as SabotageType;
-      setActiveSabotageType(type);
-      if (type === 'LIGHTS') {
-        setIsLightsSabotaged(true);
-      } else if (type === 'COMMS') {
-        setIsLightsSabotaged(false);
-      } else if (type === 'REACTOR' || type === 'O2') {
-        setIsLightsSabotaged(false);
+      setActiveSabotages((prev) => Array.from(new Set([...prev, type])));
+      if (type === 'REACTOR' || type === 'O2') {
         setSabotageSecondsLeft(45);
+        playSiren();
       }
     },
-    onSabotageFixed: () => {
-      setActiveSabotageType(null);
-      setIsLightsSabotaged(false);
-      setSabotageSecondsLeft(null);
+    onSabotageFixed: (payload) => {
+      const fixedType = (payload as any)?.type as SabotageType | 'ALL' | undefined;
+      if (!fixedType || fixedType === 'ALL') {
+        setActiveSabotages([]);
+        setSabotageSecondsLeft(null);
+        stopAll();
+        return;
+      }
+
+      setActiveSabotages((prev) => {
+        const next = prev.filter((t) => t !== fixedType);
+        const stillHasCritical = next.includes('REACTOR') || next.includes('O2');
+        if (!stillHasCritical) {
+          setSabotageSecondsLeft(null);
+          stopAll();
+        }
+        return next;
+      });
     },
     onTaskCompleted: (payload) => {
       if (payload && payload.playerId) {
@@ -358,14 +398,14 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
 
     if (gameState === 'EMERGENCY_MEETING') {
       playEmergencyBuzzer();
-    } else if (activeSabotageType === 'REACTOR' || activeSabotageType === 'O2') {
+    } else if (isReactorSabotaged || isO2Sabotaged) {
       playSiren();
     } else {
       stopAll();
     }
 
     return () => stopAll();
-  }, [gameState, activeSabotageType, audioEnabled, playSiren, playEmergencyBuzzer, stopAll]);
+  }, [gameState, isReactorSabotaged, isO2Sabotaged, audioEnabled, playSiren, playEmergencyBuzzer, stopAll]);
 
   // Auto-retorno da TV ao Lobby após finalização da partida (10s para visualização do sumário)
   useEffect(() => {
@@ -551,67 +591,77 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
                 <span>Pular Discussão (Abrir Votação)</span>
               </button>
             </div>
-          ) : activeSabotageType === 'REACTOR' ? (
-            <div className="flex items-center gap-5 bg-red-950/90 border-2 border-red-500 p-6 rounded-2xl mt-6 animate-pulse shadow-[0_0_50px_rgba(239,68,68,0.5)]">
-              <Atom className="w-14 h-14 text-red-400 shrink-0 animate-spin" />
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-2xl font-black text-red-200 uppercase tracking-wide">
-                    ☢️ ALERTA CRÍTICO: FUSÃO DO REATOR!
-                  </h3>
-                  {sabotageSecondsLeft !== null && (
-                    <span className="text-3xl font-black text-amber-300 font-mono">
-                      {sabotageSecondsLeft}s
-                    </span>
-                  )}
+          ) : activeSabotages.length > 0 ? (
+            <div className="space-y-3 mt-6">
+              {isReactorSabotaged && (
+                <div className="flex items-center gap-5 bg-red-950/90 border-2 border-red-500 p-5 rounded-2xl animate-pulse shadow-[0_0_50px_rgba(239,68,68,0.5)]">
+                  <Atom className="w-12 h-12 text-red-400 shrink-0 animate-spin" />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xl font-black text-red-200 uppercase tracking-wide">
+                        ☢️ ALERTA CRÍTICO: FUSÃO DO REATOR!
+                      </h3>
+                      {sabotageSecondsLeft !== null && (
+                        <span className="text-2xl font-black text-amber-300 font-mono">
+                          {sabotageSecondsLeft}s
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-red-300/90 mt-0.5 font-mono">
+                      Sobrecarga fatal detectada! Tripulantes devem ir à Sala do Reator para estabilizar o núcleo.
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm text-red-300/90 mt-1 font-mono">
-                  Sobrecarga fatal detectada! Tripulantes devem ir à Sala do Reator para estabilizar o núcleo.
-                </p>
-              </div>
-            </div>
-          ) : activeSabotageType === 'O2' ? (
-            <div className="flex items-center gap-5 bg-cyan-950/90 border-2 border-cyan-500 p-6 rounded-2xl mt-6 animate-pulse shadow-[0_0_50px_rgba(6,182,212,0.5)]">
-              <Wind className="w-14 h-14 text-cyan-400 shrink-0 animate-bounce" />
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-2xl font-black text-cyan-200 uppercase tracking-wide">
-                    💨 ALERTA CRÍTICO: FALHA DE OXIGÊNIO!
-                  </h3>
-                  {sabotageSecondsLeft !== null && (
-                    <span className="text-3xl font-black text-amber-300 font-mono">
-                      {sabotageSecondsLeft}s
-                    </span>
-                  )}
+              )}
+
+              {isO2Sabotaged && (
+                <div className="flex items-center gap-5 bg-cyan-950/90 border-2 border-cyan-500 p-5 rounded-2xl animate-pulse shadow-[0_0_50px_rgba(6,182,212,0.5)]">
+                  <Wind className="w-12 h-12 text-cyan-400 shrink-0 animate-bounce" />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xl font-black text-cyan-200 uppercase tracking-wide">
+                        💨 ALERTA CRÍTICO: FALHA DE OXIGÊNIO!
+                      </h3>
+                      {sabotageSecondsLeft !== null && (
+                        <span className="text-2xl font-black text-amber-300 font-mono">
+                          {sabotageSecondsLeft}s
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-cyan-300/90 mt-0.5 font-mono">
+                      Esgotamento de suporte de vida! Limpem os filtros na Sala de O2.
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm text-cyan-300/90 mt-1 font-mono">
-                  Esgotamento de suporte de vida! Limpem os filtros ou digitem o código na Sala de O2.
-                </p>
-              </div>
-            </div>
-          ) : activeSabotageType === 'COMMS' ? (
-            <div className="flex items-center gap-5 bg-purple-950/90 border border-purple-500/80 p-6 rounded-2xl mt-6 animate-pulse shadow-[0_0_40px_rgba(147,51,234,0.4)]">
-              <Radio className="w-12 h-12 text-purple-400 shrink-0 animate-pulse" />
-              <div>
-                <h3 className="text-2xl font-black text-purple-200 uppercase tracking-wide">
-                  📡 INTERFERÊNCIA: COMUNICAÇÕES OFFLINE
-                </h3>
-                <p className="text-sm text-purple-300/90 mt-1">
-                  Sinal bloqueado. Listas de tarefas e radares ocultos até que a frequência seja restabelecida!
-                </p>
-              </div>
-            </div>
-          ) : isLightsSabotaged || activeSabotageType === 'LIGHTS' ? (
-            <div className="flex items-center gap-5 bg-yellow-950/80 border border-yellow-500/80 p-6 rounded-2xl mt-6 animate-pulse shadow-[0_0_40px_rgba(245,158,11,0.3)]">
-              <Zap className="w-12 h-12 text-yellow-400 shrink-0 animate-bounce" />
-              <div>
-                <h3 className="text-2xl font-black text-yellow-200 uppercase tracking-wide">
-                  ⚡ SABOTAGEM DETECTADA: ESCURIDÃO TOTAL
-                </h3>
-                <p className="text-sm text-yellow-300/90 mt-1">
-                  As luzes físicas foram cortadas. Localizem o Gerador Elétrico e armem os disjuntores!
-                </p>
-              </div>
+              )}
+
+              {isCommsSabotaged && (
+                <div className="flex items-center gap-5 bg-purple-950/90 border border-purple-500/80 p-5 rounded-2xl animate-pulse shadow-[0_0_40px_rgba(147,51,234,0.4)]">
+                  <Radio className="w-10 h-10 text-purple-400 shrink-0 animate-pulse" />
+                  <div>
+                    <h3 className="text-xl font-black text-purple-200 uppercase tracking-wide">
+                      📡 INTERFERÊNCIA: COMUNICAÇÕES OFFLINE
+                    </h3>
+                    <p className="text-xs text-purple-300/90 mt-0.5">
+                      Rádio transmissor mudo. Use o Botão Central para convocar reuniões!
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {isLightsSabotaged && (
+                <div className="flex items-center gap-5 bg-yellow-950/80 border border-yellow-500/80 p-5 rounded-2xl animate-pulse shadow-[0_0_40px_rgba(245,158,11,0.3)]">
+                  <Zap className="w-10 h-10 text-yellow-400 shrink-0 animate-bounce" />
+                  <div>
+                    <h3 className="text-xl font-black text-yellow-200 uppercase tracking-wide">
+                      ⚡ SABOTAGEM DETECTADA: ESCURIDÃO TOTAL
+                    </h3>
+                    <p className="text-xs text-yellow-300/90 mt-0.5">
+                      Luzes físicas cortadas. Armem os disjuntores no Quadro de Luz!
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-5 bg-slate-900/80 border border-slate-800 p-6 rounded-2xl mt-6">

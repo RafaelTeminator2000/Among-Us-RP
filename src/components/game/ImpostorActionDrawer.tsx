@@ -35,7 +35,7 @@ const SABOTAGE_OPTIONS: SabotageOption[] = [
     id: "COMMS",
     title: "Comunicações",
     room: "Comunicações",
-    description: "Oculta a lista de tarefas e interfere nos radares.",
+    description: "Oculta o rádio de reportar corpos (obriga uso do Botão Central).",
     icon: Radio,
     colorClass: "from-purple-700 to-indigo-600 border-purple-500/50 text-purple-300",
     badgeClass: "bg-purple-950/80 text-purple-400 border-purple-700/50",
@@ -46,7 +46,7 @@ const SABOTAGE_OPTIONS: SabotageOption[] = [
     id: "REACTOR",
     title: "Fusão do Reator",
     room: "Reator Nuclear",
-    description: "Inicia contagem de sobrecarga crítica no reator da nave (Sirene ativa).",
+    description: "Inicia contagem fatal de 45s no núcleo da nave (Sirene ativa).",
     icon: Atom,
     colorClass: "from-rose-700 to-red-600 border-rose-500/50 text-rose-300",
     badgeClass: "bg-rose-950/80 text-rose-400 border-rose-700/50",
@@ -57,7 +57,7 @@ const SABOTAGE_OPTIONS: SabotageOption[] = [
     id: "O2",
     title: "Falha de Oxigênio",
     room: "Sala de O2",
-    description: "Interrompe os filtros e esgota o oxigênio da tripulação (Sirene ativa).",
+    description: "Interrompe os filtros e esgota o oxigênio da tripulação em 45s.",
     icon: Wind,
     colorClass: "from-cyan-600 to-teal-600 border-cyan-500/50 text-cyan-300",
     badgeClass: "bg-cyan-950/80 text-cyan-400 border-cyan-700/50",
@@ -71,8 +71,7 @@ export interface ImpostorActionDrawerProps {
   roomCode?: string;
   impostorId: string;
   players: PlayerGameState[];
-  isLightsSabotaged: boolean;
-  isSabotageActive?: boolean;
+  activeSabotages?: SabotageType[];
   cooldownSeconds?: number;
   reactorUses?: number;
   o2Uses?: number;
@@ -87,8 +86,7 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
   roomCode,
   impostorId,
   players,
-  isLightsSabotaged,
-  isSabotageActive = false,
+  activeSabotages = [],
   cooldownSeconds,
   reactorUses = 0,
   o2Uses = 0,
@@ -111,26 +109,25 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
     }
   }, [cooldownSeconds]);
 
-  const isBlocked = isSabotageActive || isLightsSabotaged;
-
-  // Contagem regressiva autônoma do cooldown de sabotagem
+  // Contagem regressiva autônoma contínua do cooldown de sabotagem (não trava quando há sabotagem ativa)
   useEffect(() => {
-    if (isBlocked || internalCooldown <= 0) return;
+    if (internalCooldown <= 0) return;
 
     const timer = setInterval(() => {
       setInternalCooldown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [internalCooldown, isBlocked]);
+  }, [internalCooldown]);
 
   const currentCooldown = internalCooldown;
   const isOnCooldown = currentCooldown > 0;
 
   const handleSelectSabotage = (type: SabotageType) => {
+    if (activeSabotages.includes(type)) return;
     if (type === "REACTOR" && reactorUses >= 2) return;
     if (type === "O2" && o2Uses >= 2) return;
-    if (currentCooldown > 0 || isBlocked) return;
+    if (currentCooldown > 0) return;
 
     onTriggerSabotage(type);
     setShowSabotageModal(false);
@@ -195,12 +192,7 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
             {/* Ações: Sabotagem e Abate */}
             <div className="flex flex-col items-center gap-4 pt-1">
               {/* Botão Principal de Sabotar com Feedback de Cooldown */}
-              {isBlocked ? (
-                <div className="w-full h-12 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-center gap-2 text-slate-500 text-xs font-mono font-bold">
-                  <Zap className="w-3.5 h-3.5 text-amber-500/60" />
-                  <span>SABOTAGEM EM ANDAMENTO</span>
-                </div>
-              ) : isOnCooldown ? (
+              {isOnCooldown ? (
                 <div className="w-full h-12 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col items-center justify-center px-4 shadow-md relative overflow-hidden">
                   <div
                     className="absolute inset-y-0 left-0 bg-amber-500/15 transition-all duration-1000"
@@ -224,7 +216,9 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
                   className="w-full h-12 rounded-2xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:via-orange-500 hover:to-amber-600 text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-950/40 border border-amber-400/30 transition active:scale-98 cursor-pointer"
                 >
                   <Flame className="w-4 h-4 fill-white" />
-                  <span>SABOTAR</span>
+                  <span>
+                    SABOTAR {activeSabotages.length > 0 ? `(${activeSabotages.length} ATIVA${activeSabotages.length > 1 ? "S" : ""})` : ""}
+                  </span>
                 </button>
               )}
 
@@ -256,7 +250,7 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
         </>
       )}
 
-      {/* Modal de Seleção do Tipo de Sabotagem com Progressão e Limites */}
+      {/* Modal de Seleção do Tipo de Sabotagem com Suporte a Sobreposição */}
       {showSabotageModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 p-4 flex items-center justify-center max-w-sm mx-auto animate-in fade-in select-none">
           <div className="w-full bg-[#0b1120] border-2 border-amber-600/70 rounded-3xl p-5 space-y-4 shadow-[0_0_40px_rgba(245,158,11,0.3)]">
@@ -288,10 +282,10 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
             <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
               {SABOTAGE_OPTIONS.map((sabotage) => {
                 const Icon = sabotage.icon;
-                const isCurrentActive = isBlocked;
+                const isAlreadyActive = activeSabotages.includes(sabotage.id);
                 const uses = sabotage.id === "REACTOR" ? reactorUses : sabotage.id === "O2" ? o2Uses : 0;
                 const isExhausted = sabotage.isCritical && uses >= 2;
-                const isDisabled = isCurrentActive || isExhausted || isOnCooldown;
+                const isDisabled = isAlreadyActive || isExhausted || isOnCooldown;
 
                 return (
                   <button
@@ -354,12 +348,12 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
                       className={`text-[10px] font-mono font-bold px-2 py-1 rounded-lg border uppercase shrink-0 ${
                         isExhausted
                           ? "bg-red-950 text-red-500 border-red-900"
-                          : isCurrentActive
-                          ? "bg-slate-950 text-slate-600 border-slate-800"
+                          : isAlreadyActive
+                          ? "bg-amber-950/80 text-amber-400 border-amber-700/60"
                           : sabotage.badgeClass
                       }`}
                     >
-                      {isExhausted ? "Esgotado" : isCurrentActive ? "Ativa" : "Acionar"}
+                      {isExhausted ? "Esgotado" : isAlreadyActive ? "Em Andamento" : "Acionar"}
                     </span>
                   </button>
                 );
@@ -387,4 +381,5 @@ export const ImpostorActionDrawer: React.FC<ImpostorActionDrawerProps> = ({
     </>
   );
 };
+
 

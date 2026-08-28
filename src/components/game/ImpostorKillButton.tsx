@@ -37,7 +37,18 @@ export const ImpostorKillButton: React.FC<ImpostorKillProps> = ({
   sendBroadcast,
   onKillExecuted,
 }) => {
-  const [cooldown, setCooldown] = useState<number>(initialCooldownSeconds);
+  const storageKey = `kill_cooldown_until_${roomId}_${impostorId}`;
+
+  const [cooldown, setCooldown] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const savedUntil = localStorage.getItem(`kill_cooldown_until_${roomId}_${impostorId}`);
+      if (savedUntil) {
+        const remaining = Math.max(0, Math.ceil((Number(savedUntil) - Date.now()) / 1000));
+        return remaining;
+      }
+    }
+    return initialCooldownSeconds;
+  });
   const [targets, setTargets] = useState<PlayerTarget[]>([]);
   const [showTargetModal, setShowTargetModal] = useState<boolean>(false);
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
@@ -45,14 +56,39 @@ export const ImpostorKillButton: React.FC<ImpostorKillProps> = ({
 
   const supabase = createClient();
 
+  // Inicializar timestamp se for a primeira vez
   useEffect(() => {
-    if (cooldown > 0) {
-      const timer = setInterval(() => {
-        setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
-      return () => clearInterval(timer);
+    if (typeof window !== "undefined") {
+      const existing = localStorage.getItem(storageKey);
+      if (!existing) {
+        const until = Date.now() + initialCooldownSeconds * 1000;
+        localStorage.setItem(storageKey, String(until));
+        setCooldown(initialCooldownSeconds);
+      }
     }
-  }, [cooldown]);
+  }, [storageKey, initialCooldownSeconds]);
+
+  // Contagem regressiva precisa com base no timestamp de expiração
+  useEffect(() => {
+    if (cooldown <= 0) return;
+
+    const timer = setInterval(() => {
+      if (typeof window !== "undefined") {
+        const savedUntil = localStorage.getItem(storageKey);
+        if (savedUntil) {
+          const remaining = Math.max(0, Math.ceil((Number(savedUntil) - Date.now()) / 1000));
+          setCooldown(remaining);
+          if (remaining <= 0) {
+            clearInterval(timer);
+          }
+          return;
+        }
+      }
+      setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [cooldown, storageKey]);
 
   const handleOpenKillMenu = async () => {
     if (cooldown > 0) return;
@@ -199,6 +235,10 @@ export const ImpostorKillButton: React.FC<ImpostorKillProps> = ({
       }
 
       setShowTargetModal(false);
+      const nextUntil = Date.now() + initialCooldownSeconds * 1000;
+      if (typeof window !== "undefined") {
+        localStorage.setItem(storageKey, String(nextUntil));
+      }
       setCooldown(initialCooldownSeconds);
     } catch (err: any) {
       console.error("Erro ao processar abate:", err);

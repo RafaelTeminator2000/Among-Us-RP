@@ -147,21 +147,116 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
     return [];
   });
-  const [isSabotaged, setIsSabotaged] = useState<boolean>(false);
-  const [isLightsSabotaged, setIsLightsSabotaged] = useState<boolean>(false);
-  const [activeSabotageType, setActiveSabotageType] = useState<SabotageType | null>(null);
-  const [sabotageSecondsLeft, setSabotageSecondsLeft] = useState<number | null>(null);
-  const [sabotageBaseCooldown, setSabotageBaseCooldown] = useState<number>(60);
-  const [sabotageCooldown, setSabotageCooldown] = useState<number>(60);
-  const [accumulatedSabotagePenalty, setAccumulatedSabotagePenalty] = useState<number>(0);
-  const [reactorUsesCount, setReactorUsesCount] = useState<number>(0);
-  const [o2UsesCount, setO2UsesCount] = useState<number>(0);
+  const [activeSabotages, setActiveSabotages] = useState<SabotageType[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`active_sabotages_${roomId}`);
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return [];
+  });
+
+  const [sabotageBaseCooldown, setSabotageBaseCooldown] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(`sabotage_base_cd_${roomId}`);
+      if (saved) return Number(saved);
+    }
+    return 60;
+  });
+
+  const [accumulatedSabotagePenalty, setAccumulatedSabotagePenalty] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(`sabotage_penalty_${roomId}`);
+      if (saved) return Number(saved);
+    }
+    return 0;
+  });
+
+  const [reactorUsesCount, setReactorUsesCount] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(`reactor_uses_${roomId}`);
+      if (saved) return Number(saved);
+    }
+    return 0;
+  });
+
+  const [o2UsesCount, setO2UsesCount] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(`o2_uses_${roomId}`);
+      if (saved) return Number(saved);
+    }
+    return 0;
+  });
+
+  const [sabotageCooldown, setSabotageCooldown] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const untilStr = localStorage.getItem(`sabotage_until_${roomId}`);
+      if (untilStr) {
+        const remaining = Math.max(0, Math.ceil((Number(untilStr) - Date.now()) / 1000));
+        return remaining;
+      }
+    }
+    return 60;
+  });
+
+  const [sabotageSecondsLeft, setSabotageSecondsLeft] = useState<number | null>(() => {
+    if (typeof window !== 'undefined') {
+      const critUntil = localStorage.getItem(`critical_sabotage_until_${roomId}`);
+      if (critUntil) {
+        const remaining = Math.max(0, Math.ceil((Number(critUntil) - Date.now()) / 1000));
+        return remaining;
+      }
+    }
+    return null;
+  });
   const [showBreakerGame, setShowBreakerGame] = useState<boolean>(false);
   const [showCommsGame, setShowCommsGame] = useState<boolean>(false);
   const [showReactorGame, setShowReactorGame] = useState<boolean>(false);
   const [showO2Game, setShowO2Game] = useState<boolean>(false);
   const [showReportScanner, setShowReportScanner] = useState<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<TaskNode | null>(null);
+
+  const isLightsSabotaged = activeSabotages.includes('LIGHTS');
+  const isCommsSabotaged = activeSabotages.includes('COMMS');
+  const isReactorSabotaged = activeSabotages.includes('REACTOR');
+  const isO2Sabotaged = activeSabotages.includes('O2');
+  const hasActiveCritical = isReactorSabotaged || isO2Sabotaged;
+
+  // Efeitos de persistência contínua de sabotagens no localStorage contra recarga de página (F5)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (activeSabotages.length > 0) {
+        localStorage.setItem(`active_sabotages_${roomId}`, JSON.stringify(activeSabotages));
+      } else {
+        localStorage.removeItem(`active_sabotages_${roomId}`);
+      }
+    }
+  }, [activeSabotages, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`sabotage_penalty_${roomId}`, String(accumulatedSabotagePenalty));
+    }
+  }, [accumulatedSabotagePenalty, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`reactor_uses_${roomId}`, String(reactorUsesCount));
+    }
+  }, [reactorUsesCount, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`o2_uses_${roomId}`, String(o2UsesCount));
+    }
+  }, [o2UsesCount, roomId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`sabotage_base_cd_${roomId}`, String(sabotageBaseCooldown));
+    }
+  }, [sabotageBaseCooldown, roomId]);
   const [activeMinigame, setActiveMinigame] = useState<
     | 'qr'
     | 'wires'
@@ -245,9 +340,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     setRoomStatus('PLAYING');
     setVictoryModal(null);
     setCompletedTasks([]);
-    setIsLightsSabotaged(false);
-    setIsSabotaged(false);
-    setActiveSabotageType(null);
+    setActiveSabotages([]);
     setSabotageSecondsLeft(null);
     setSabotageBaseCooldown(60);
     setSabotageCooldown(60);
@@ -257,6 +350,18 @@ export default function RoomPage({ params }: RoomPageProps) {
     setPlayerStatus('ALIVE');
     setPlayerRole(roleToSet);
     setMapData(DEFAULT_DEMO_MAP);
+
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(`active_sabotages_${roomId}`);
+      localStorage.removeItem(`sabotage_penalty_${roomId}`);
+      localStorage.removeItem(`reactor_uses_${roomId}`);
+      localStorage.removeItem(`o2_uses_${roomId}`);
+      localStorage.removeItem(`critical_sabotage_until_${roomId}`);
+      localStorage.removeItem(`kill_cooldown_until_${roomId}_${playerId}`);
+      localStorage.removeItem(`kill_cooldown_until_${roomId}_p-self`);
+      const startUntil = Date.now() + 60 * 1000;
+      localStorage.setItem(`sabotage_until_${roomId}`, String(startUntil));
+    }
 
     const demoPlayers: PlayerGameState[] = [
       {
@@ -336,10 +441,8 @@ export default function RoomPage({ params }: RoomPageProps) {
         setRoomStatus((prev) => {
           if (prev !== room.status) {
             if (room.status === 'LOBBY' || room.status === 'FINISHED') {
-              setActiveSabotageType(null);
+              setActiveSabotages([]);
               setSabotageSecondsLeft(null);
-              setIsLightsSabotaged(false);
-              setIsSabotaged(false);
               setActiveMinigame(null);
               setSelectedTask(null);
               setShowBreakerGame(false);
@@ -386,8 +489,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       }
 
       if (room.is_lights_sabotaged) {
-        setIsLightsSabotaged(true);
-        setIsSabotaged(true);
+        setActiveSabotages((prev) => Array.from(new Set([...prev, 'LIGHTS' as SabotageType])));
       }
 
       if (player) {
@@ -530,9 +632,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       }
       setVictoryModal(null);
       setCompletedTasks([]);
-      setIsLightsSabotaged(false);
-      setIsSabotaged(false);
-      setActiveSabotageType(null);
+      setActiveSabotages([]);
       setSabotageSecondsLeft(null);
       setActiveMinigame(null);
       setSelectedTask(null);
@@ -554,6 +654,17 @@ export default function RoomPage({ params }: RoomPageProps) {
       setAccumulatedSabotagePenalty(0);
       setReactorUsesCount(0);
       setO2UsesCount(0);
+
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(`active_sabotages_${roomId}`);
+        localStorage.removeItem(`sabotage_penalty_${roomId}`);
+        localStorage.removeItem(`reactor_uses_${roomId}`);
+        localStorage.removeItem(`o2_uses_${roomId}`);
+        localStorage.removeItem(`critical_sabotage_until_${roomId}`);
+        localStorage.removeItem(`kill_cooldown_until_${roomId}_${playerId}`);
+        const startUntil = Date.now() + baseCd * 1000;
+        localStorage.setItem(`sabotage_until_${roomId}`, String(startUntil));
+      }
       const gTime = payload.timestamp || Date.now();
       setGameStartTime(gTime);
       try {
@@ -597,10 +708,8 @@ export default function RoomPage({ params }: RoomPageProps) {
       stopAll();
       playTaskBeep();
       setRoomStatus('FINISHED');
-      setActiveSabotageType(null);
+      setActiveSabotages([]);
       setSabotageSecondsLeft(null);
-      setIsLightsSabotaged(false);
-      setIsSabotaged(false);
       setActiveMinigame(null);
       setSelectedTask(null);
       setShowBreakerGame(false);
@@ -622,10 +731,8 @@ export default function RoomPage({ params }: RoomPageProps) {
       stopAll();
       playEmergencyBuzzer();
       setRoomStatus('FINISHED');
-      setActiveSabotageType(null);
+      setActiveSabotages([]);
       setSabotageSecondsLeft(null);
-      setIsLightsSabotaged(false);
-      setIsSabotaged(false);
       setActiveMinigame(null);
       setSelectedTask(null);
       setShowBreakerGame(false);
@@ -697,32 +804,51 @@ export default function RoomPage({ params }: RoomPageProps) {
     },
     onSabotageTriggered: (payload) => {
       const type = ((payload?.type || 'LIGHTS') as string).toUpperCase() as SabotageType;
-      setActiveSabotageType(type);
-      setIsSabotaged(true);
+      setActiveSabotages((prev) => Array.from(new Set([...prev, type])));
 
-      if (type === 'LIGHTS') {
-        setIsLightsSabotaged(true);
-        // Luzes é sabotagem de mecânica (sem sirene contínua)
-      } else if (type === 'COMMS') {
-        setIsLightsSabotaged(false);
-        // Comunicações é sabotagem de mecânica (sem sirene contínua)
-      } else if (type === 'REACTOR' || type === 'O2') {
-        setIsLightsSabotaged(false);
+      if (type === 'REACTOR' || type === 'O2') {
+        const critUntil = Date.now() + 45 * 1000;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`critical_sabotage_until_${roomId}`, String(critUntil));
+        }
         setSabotageSecondsLeft(45);
-        playSiren(); // Sabotagens críticas tocam sirene contínua
+        playSiren();
       }
     },
-    onSabotageFixed: () => {
-      setActiveSabotageType(null);
-      setIsLightsSabotaged(false);
-      setIsSabotaged(false);
-      setSabotageSecondsLeft(null);
-      setShowBreakerGame(false);
-      setShowCommsGame(false);
-      setShowReactorGame(false);
-      setShowO2Game(false);
-      stopAll();
-      setSabotageCooldown(sabotageBaseCooldown + accumulatedSabotagePenalty);
+    onSabotageFixed: (payload) => {
+      const fixedType = (payload as any)?.type as SabotageType | 'ALL' | undefined;
+      if (!fixedType || fixedType === 'ALL') {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(`active_sabotages_${roomId}`);
+          localStorage.removeItem(`critical_sabotage_until_${roomId}`);
+        }
+        setActiveSabotages([]);
+        setShowBreakerGame(false);
+        setShowCommsGame(false);
+        setShowReactorGame(false);
+        setShowO2Game(false);
+        setSabotageSecondsLeft(null);
+        stopAll();
+        return;
+      }
+
+      setActiveSabotages((prev) => {
+        const next = prev.filter((t) => t !== fixedType);
+        const stillHasCritical = next.includes('REACTOR') || next.includes('O2');
+        if (!stillHasCritical) {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem(`critical_sabotage_until_${roomId}`);
+          }
+          setSabotageSecondsLeft(null);
+          stopAll();
+        }
+        return next;
+      });
+
+      if (fixedType === 'LIGHTS') setShowBreakerGame(false);
+      if (fixedType === 'COMMS') setShowCommsGame(false);
+      if (fixedType === 'REACTOR') setShowReactorGame(false);
+      if (fixedType === 'O2') setShowO2Game(false);
     },
     onTaskCompleted: (payload) => {
       if (payload && payload.playerId) {
@@ -768,9 +894,7 @@ export default function RoomPage({ params }: RoomPageProps) {
         setPlayerRole(null);
         setPlayerStatus('ALIVE');
         setCompletedTasks([]);
-        setIsLightsSabotaged(false);
-        setIsSabotaged(false);
-        setActiveSabotageType(null);
+        setActiveSabotages([]);
         setSabotageSecondsLeft(null);
         setVictoryModal(null);
         setSelectedTask(null);
@@ -1014,8 +1138,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       setPlayerRole(myNewRole);
       setPlayerStatus('ALIVE');
       setCompletedTasks([]);
-      setIsLightsSabotaged(false);
-      setIsSabotaged(false);
+      setActiveSabotages([]);
       setVictoryModal(null);
       setRoomStatus('PLAYING');
 
@@ -1085,12 +1208,17 @@ export default function RoomPage({ params }: RoomPageProps) {
       localStorage.setItem(`room_status_${roomId}`, 'LOBBY');
       localStorage.removeItem(`player_role_${roomId}`);
       localStorage.removeItem(`completed_tasks_${roomId}`);
+      localStorage.removeItem(`active_sabotages_${roomId}`);
+      localStorage.removeItem(`sabotage_penalty_${roomId}`);
+      localStorage.removeItem(`reactor_uses_${roomId}`);
+      localStorage.removeItem(`o2_uses_${roomId}`);
+      localStorage.removeItem(`critical_sabotage_until_${roomId}`);
+      localStorage.removeItem(`kill_cooldown_until_${roomId}_${playerId}`);
+      localStorage.removeItem(`kill_cooldown_until_${roomId}_p-self`);
+      localStorage.removeItem(`sabotage_until_${roomId}`);
     }
     setPlayerStatus('ALIVE');
-    setCompletedTasks([]);
-    setIsLightsSabotaged(false);
-    setIsSabotaged(false);
-    setActiveSabotageType(null);
+    setActiveSabotages([]);
     setSabotageSecondsLeft(null);
     setSabotageCooldown(sabotageBaseCooldown);
     setAccumulatedSabotagePenalty(0);
@@ -1284,23 +1412,18 @@ export default function RoomPage({ params }: RoomPageProps) {
 
   // Contagem regressiva para sabotagens críticas (Reator e O2)
   useEffect(() => {
-    if (!activeSabotageType || (activeSabotageType !== 'REACTOR' && activeSabotageType !== 'O2')) {
+    if (!hasActiveCritical || sabotageSecondsLeft === null) {
       return;
     }
 
-    if (sabotageSecondsLeft === null) return;
-
     if (sabotageSecondsLeft <= 0) {
-      const reason =
-        activeSabotageType === 'REACTOR'
-          ? '💥 FUSÃO DO REATOR! O reator entrou em colapso e destruiu a nave.'
-          : '💨 ESGOTAMENTO DE OXIGÊNIO! As reservas de O2 zeraram e a tripulação sucumbiu.';
+      const reason = isReactorSabotaged
+        ? '💥 FUSÃO DO REATOR! O reator entrou em colapso e destruiu a nave.'
+        : '💨 ESGOTAMENTO DE OXIGÊNIO! As reservas de O2 zeraram e a tripulação sucumbiu.';
 
       // Imediatamente fecha todos os minigames e limpa estados de sabotagem
-      setActiveSabotageType(null);
+      setActiveSabotages([]);
       setSabotageSecondsLeft(null);
-      setIsLightsSabotaged(false);
-      setIsSabotaged(false);
       setActiveMinigame(null);
       setSelectedTask(null);
       setShowBreakerGame(false);
@@ -1333,24 +1456,37 @@ export default function RoomPage({ params }: RoomPageProps) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [activeSabotageType, sabotageSecondsLeft, broadcastEvent, stopAll]);
+  }, [hasActiveCritical, isReactorSabotaged, isO2Sabotaged, sabotageSecondsLeft, broadcastEvent, stopAll]);
 
-  // Timer regressivo do Cooldown de Sabotagem do Impostor
+  // Timer regressivo do Cooldown de Sabotagem do Impostor (contínuo e resistente a refresh)
   useEffect(() => {
-    if (roomStatus !== 'PLAYING' || isSabotaged || isLightsSabotaged || activeSabotageType !== null) {
+    if (roomStatus !== 'PLAYING') {
       return;
     }
 
     if (sabotageCooldown > 0) {
       const timer = setInterval(() => {
+        if (typeof window !== 'undefined') {
+          const untilStr = localStorage.getItem(`sabotage_until_${roomId}`);
+          if (untilStr) {
+            const remaining = Math.max(0, Math.ceil((Number(untilStr) - Date.now()) / 1000));
+            setSabotageCooldown(remaining);
+            if (remaining <= 0) {
+              clearInterval(timer);
+            }
+            return;
+          }
+        }
         setSabotageCooldown((prev) => (prev > 0 ? prev - 1 : 0));
       }, 1000);
       return () => clearInterval(timer);
     }
-  }, [roomStatus, isSabotaged, isLightsSabotaged, activeSabotageType, sabotageCooldown]);
+  }, [roomStatus, sabotageCooldown, roomId]);
 
-  // Disparar Sabotagem pelo Impostor (Luzes, Reator, O2, Comunicações)
-  const handleTriggerSabotage = async (type: SabotageType = 'LIGHTS') => {
+  // Disparar Sabotagem pelo Impostor (acumulando com as existentes)
+  const handleTriggerSabotage = async (type: SabotageType) => {
+    if (activeSabotages.includes(type)) return;
+
     // 1. Validação de Limites de Sabotagens Críticas (Máximo 2x cada por partida)
     if (type === 'REACTOR' && reactorUsesCount >= 2) {
       setTaskFeedback('⚠️ O Reator já atingiu o limite de 2 sabotagens nesta partida!');
@@ -1364,23 +1500,30 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
 
     // 2. Aplicar Acréscimos de Tempo Progressivos (+40s para Críticas, +25s para Mecânicas)
+    let newPenalty = accumulatedSabotagePenalty;
     if (type === 'REACTOR') {
       setReactorUsesCount((prev) => prev + 1);
-      setAccumulatedSabotagePenalty((prev) => prev + 40);
+      newPenalty += 40;
     } else if (type === 'O2') {
       setO2UsesCount((prev) => prev + 1);
-      setAccumulatedSabotagePenalty((prev) => prev + 40);
+      newPenalty += 40;
     } else if (type === 'LIGHTS' || type === 'COMMS') {
-      setAccumulatedSabotagePenalty((prev) => prev + 25);
+      newPenalty += 25;
     }
+    setAccumulatedSabotagePenalty(newPenalty);
 
-    setActiveSabotageType(type);
-    setIsSabotaged(true);
+    // 3. Iniciar novo cooldown imediatamente para o próximo uso e persistir timestamp
+    const nextUntil = Date.now() + (sabotageBaseCooldown + newPenalty) * 1000;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`sabotage_until_${roomId}`, String(nextUntil));
+    }
+    setSabotageCooldown(sabotageBaseCooldown + newPenalty);
+
+    // 4. Adicionar ao conjunto de sabotagens ativas
+    setActiveSabotages((prev) => Array.from(new Set([...prev, type])));
 
     if (type === 'LIGHTS') {
-      setIsLightsSabotaged(true);
       await triggerSabotage('LIGHTS');
-
       if (isValidUuid(roomId)) {
         await supabase
           .from('rooms')
@@ -1388,41 +1531,77 @@ export default function RoomPage({ params }: RoomPageProps) {
           .eq('id', roomId);
       }
     } else if (type === 'COMMS') {
-      setIsLightsSabotaged(false);
       await triggerSabotage('COMMS' as any);
-    } else if (type === 'REACTOR') {
-      setIsLightsSabotaged(false);
+    } else if (type === 'REACTOR' || type === 'O2') {
+      const critUntil = Date.now() + 45 * 1000;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`critical_sabotage_until_${roomId}`, String(critUntil));
+      }
       setSabotageSecondsLeft(45);
       playSiren();
-      await triggerSabotage('REACTOR');
-    } else if (type === 'O2') {
-      setIsLightsSabotaged(false);
-      setSabotageSecondsLeft(45);
-      playSiren();
-      await triggerSabotage('O2');
+      await triggerSabotage(type);
     }
+
+    broadcastEvent('SABOTAGE_TRIGGERED', { type, timestamp: Date.now() });
   };
 
-  // Resolver qualquer Sabotagem
-  const handleFixSabotage = async () => {
-    setActiveSabotageType(null);
-    setIsLightsSabotaged(false);
-    setIsSabotaged(false);
-    setSabotageSecondsLeft(null);
-    setShowBreakerGame(false);
-    setShowCommsGame(false);
-    setShowReactorGame(false);
-    setShowO2Game(false);
-    stopAll();
-    setSabotageCooldown(sabotageBaseCooldown + accumulatedSabotagePenalty);
-    await fixSabotage();
+  // Resolver Sabotagem específica (permitindo consertar individualmente)
+  const handleFixSabotage = async (typeToFix?: SabotageType | 'ALL') => {
+    if (!typeToFix || typeToFix === 'ALL') {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(`active_sabotages_${roomId}`);
+        localStorage.removeItem(`critical_sabotage_until_${roomId}`);
+      }
+      setActiveSabotages([]);
+      setShowBreakerGame(false);
+      setShowCommsGame(false);
+      setShowReactorGame(false);
+      setShowO2Game(false);
+      setSabotageSecondsLeft(null);
+      stopAll();
+      await fixSabotage();
 
-    if (isValidUuid(roomId)) {
-      await supabase
-        .from('rooms')
-        .update({ is_lights_sabotaged: false })
-        .eq('id', roomId);
+      if (isValidUuid(roomId)) {
+        await supabase
+          .from('rooms')
+          .update({ is_lights_sabotaged: false })
+          .eq('id', roomId);
+      }
+      broadcastEvent('SABOTAGE_FIXED', { type: 'ALL', timestamp: Date.now() });
+      return;
     }
+
+    setActiveSabotages((prev) => {
+      const next = prev.filter((t) => t !== typeToFix);
+      const stillHasCritical = next.includes('REACTOR') || next.includes('O2');
+      if (!stillHasCritical) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(`critical_sabotage_until_${roomId}`);
+        }
+        setSabotageSecondsLeft(null);
+        stopAll();
+      }
+      return next;
+    });
+
+    if (typeToFix === 'LIGHTS') {
+      setShowBreakerGame(false);
+      if (isValidUuid(roomId)) {
+        await supabase
+          .from('rooms')
+          .update({ is_lights_sabotaged: false })
+          .eq('id', roomId);
+      }
+    } else if (typeToFix === 'COMMS') {
+      setShowCommsGame(false);
+    } else if (typeToFix === 'REACTOR') {
+      setShowReactorGame(false);
+    } else if (typeToFix === 'O2') {
+      setShowO2Game(false);
+    }
+
+    await fixSabotage();
+    broadcastEvent('SABOTAGE_FIXED', { type: typeToFix, timestamp: Date.now() });
   };
 
   // Validar se uma tarefa (por código QR, ID ou tipo) pertence às tarefas pessoais atribuídas ao jogador
@@ -1673,7 +1852,7 @@ export default function RoomPage({ params }: RoomPageProps) {
   // Reportar corpo de um jogador encontrado
   const handleBodyReported = (deadPlayerName: string) => {
     // Se a comunicação estiver sabotada e não for acionamento pelo Botão de Emergência físico, bloquear o reporte por rádio
-    if (activeSabotageType === 'COMMS' && !deadPlayerName.toLowerCase().includes('botão') && !deadPlayerName.toLowerCase().includes('emergência')) {
+    if (isCommsSabotaged && !deadPlayerName.toLowerCase().includes('botão') && !deadPlayerName.toLowerCase().includes('emergência')) {
       setShowReportScanner(false);
       setTaskFeedback('⚠️ COMUNICAÇÃO SABOTADA! O rádio não transmite reportes. Vá presencialmente até o Botão de Emergência Central!');
       setTimeout(() => setTaskFeedback(null), 4500);
@@ -1989,7 +2168,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           playerRole={playerRole}
           roomId={roomId}
           playerId={playerId}
-          isCommsSabotaged={activeSabotageType === 'COMMS'}
+          isCommsSabotaged={isCommsSabotaged}
         />
       </main>
 
@@ -2002,8 +2181,7 @@ export default function RoomPage({ params }: RoomPageProps) {
             roomCode={isValidUuid(roomId) ? undefined : roomId}
             impostorId={playerId}
             players={allPlayers}
-            isLightsSabotaged={isLightsSabotaged}
-            isSabotageActive={isSabotaged || activeSabotageType !== null}
+            activeSabotages={activeSabotages}
             cooldownSeconds={sabotageCooldown}
             reactorUses={reactorUsesCount}
             o2Uses={o2UsesCount}
@@ -2016,7 +2194,7 @@ export default function RoomPage({ params }: RoomPageProps) {
 
         <div className="flex items-center justify-between gap-3">
           {/* Botão de Reportar com Bloqueio Tático durante Sabotagem de Comunicações */}
-          {activeSabotageType === 'COMMS' ? (
+          {isCommsSabotaged ? (
             <button
               type="button"
               onClick={() => {
@@ -2296,7 +2474,7 @@ export default function RoomPage({ params }: RoomPageProps) {
                 const cleanCode = code.trim().toUpperCase();
 
                 if (cleanCode.includes('REPORT_BODY') || cleanCode === 'REPORT') {
-                  if (activeSabotageType === 'COMMS') {
+                  if (isCommsSabotaged) {
                     setActiveMinigame(null);
                     setSelectedTask(null);
                     setTaskFeedback('⚠️ COMUNICAÇÃO SABOTADA! O rádio não transmite reportes. Vá presencialmente até o Botão de Emergência Central na Cafeteria!');
@@ -2314,31 +2492,36 @@ export default function RoomPage({ params }: RoomPageProps) {
                 }
                 // Sabotagem de Luzes
                 if (
-                  isLightsSabotaged ||
                   cleanCode.includes('TASK_BREAKER') ||
                   cleanCode.includes('LIGHTS') ||
                   cleanCode.includes('POINT_01')
                 ) {
-                  setActiveMinigame(null);
-                  setSelectedTask(null);
-                  setShowBreakerGame(true);
-                  return;
+                  if (isLightsSabotaged) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setShowBreakerGame(true);
+                    return;
+                  }
                 }
 
                 // Sabotagem de Comunicações
                 if (cleanCode.includes('TASK_COMMS') || cleanCode.includes('COMMS')) {
-                  setActiveMinigame(null);
-                  setSelectedTask(null);
-                  setShowCommsGame(true);
-                  return;
+                  if (isCommsSabotaged) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setShowCommsGame(true);
+                    return;
+                  }
                 }
 
                 // Sabotagem de Reator (Crítica)
                 if (cleanCode.includes('TASK_REACTOR') || cleanCode.includes('REACTOR')) {
-                  setActiveMinigame(null);
-                  setSelectedTask(null);
-                  setShowReactorGame(true);
-                  return;
+                  if (isReactorSabotaged) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setShowReactorGame(true);
+                    return;
+                  }
                 }
 
                 // Sabotagem de Oxigênio (O2 - Crítica)
@@ -2348,10 +2531,12 @@ export default function RoomPage({ params }: RoomPageProps) {
                   cleanCode.includes('OXYGEN') ||
                   cleanCode.includes('O2')
                 ) {
-                  setActiveMinigame(null);
-                  setSelectedTask(null);
-                  setShowO2Game(true);
-                  return;
+                  if (isO2Sabotaged) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setShowO2Game(true);
+                    return;
+                  }
                 }
 
                 // Validar se a tarefa do QR code escaneado pertence às tarefas pessoais do jogador
@@ -2646,7 +2831,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {/* Minigame de Disjuntores (Breaker Minigame - Luzes) */}
       {showBreakerGame && (
         <BreakerMinigame
-          onComplete={handleFixSabotage}
+          onComplete={() => handleFixSabotage('LIGHTS')}
           onClose={() => setShowBreakerGame(false)}
         />
       )}
@@ -2654,7 +2839,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {/* Minigame de Comunicações (Comms Minigame) */}
       {showCommsGame && (
         <CommsMinigame
-          onComplete={handleFixSabotage}
+          onComplete={() => handleFixSabotage('COMMS')}
           onClose={() => setShowCommsGame(false)}
         />
       )}
@@ -2662,7 +2847,7 @@ export default function RoomPage({ params }: RoomPageProps) {
       {/* Minigame do Reator (Fusão Crítica) */}
       {showReactorGame && (
         <StartReactorMinigame
-          onComplete={handleFixSabotage}
+          onComplete={() => handleFixSabotage('REACTOR')}
           onCancel={() => setShowReactorGame(false)}
         />
       )}
@@ -2670,28 +2855,26 @@ export default function RoomPage({ params }: RoomPageProps) {
       {/* Minigame de Oxigênio (O2 Crítica) */}
       {showO2Game && (
         <CleanO2FilterMinigame
-          onComplete={handleFixSabotage}
+          onComplete={() => handleFixSabotage('O2')}
           onCancel={() => setShowO2Game(false)}
         />
       )}
 
-
-
       {/* Banner de Alerta para Sabotagens Críticas (Reator e O2) com Sirene e Contagem Regressiva */}
-      {(activeSabotageType === 'REACTOR' || activeSabotageType === 'O2') && sabotageSecondsLeft !== null && (
+      {hasActiveCritical && sabotageSecondsLeft !== null && (
         <div className="fixed top-3 inset-x-3 z-50 p-3.5 rounded-2xl bg-red-950/95 border-2 border-red-500 text-white shadow-[0_0_40px_rgba(239,68,68,0.6)] backdrop-blur-md animate-pulse flex items-center justify-between font-mono select-none">
           <div className="flex items-center gap-2.5">
-            {activeSabotageType === 'REACTOR' ? (
+            {isReactorSabotaged ? (
               <Atom className="w-7 h-7 text-red-400 animate-spin shrink-0" />
             ) : (
               <Wind className="w-7 h-7 text-cyan-400 animate-bounce shrink-0" />
             )}
             <div>
               <span className="text-xs font-black uppercase text-red-200 block tracking-wider">
-                {activeSabotageType === 'REACTOR' ? '☢️ FUSÃO DO REATOR!' : '💨 FALHA DE OXIGÊNIO!'}
+                {isReactorSabotaged ? '☢️ FUSÃO DO REATOR!' : '💨 FALHA DE OXIGÊNIO!'}
               </span>
               <span className="text-[10px] text-red-300">
-                {activeSabotageType === 'REACTOR'
+                {isReactorSabotaged
                   ? 'Estabilize o núcleo no Reator'
                   : 'Limpe os filtros na Sala de O2'}
               </span>
