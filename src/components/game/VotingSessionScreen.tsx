@@ -83,13 +83,72 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
   });
 
   const [phase, setPhase] = useState<"DISCUSSION" | "VOTING" | "RESULTS">(() => {
+    if (typeof window !== "undefined") {
+      const startStr =
+        localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
+        (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : null);
+      if (startStr) {
+        const elapsed = Math.max(0, Math.floor((Date.now() - Number(startStr)) / 1000));
+        if (elapsed < discussionTimeSeconds) {
+          return "DISCUSSION";
+        } else if (elapsed < discussionTimeSeconds + votingTimeSeconds) {
+          return "VOTING";
+        }
+      }
+    }
     return discussionTimeSeconds > 0 ? "DISCUSSION" : "VOTING";
   });
 
-  const [discussionTimeLeft, setDiscussionTimeLeft] = useState<number>(discussionTimeSeconds);
-  const [selectedTarget, setSelectedTarget] = useState<string | "SKIP" | null>(null);
-  const [hasConfirmed, setHasConfirmed] = useState<boolean>(false);
-  const [timeLeft, setTimeLeft] = useState<number>(votingTimeSeconds);
+  const [discussionTimeLeft, setDiscussionTimeLeft] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const startStr =
+        localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
+        (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : null);
+      if (startStr) {
+        const elapsed = Math.max(0, Math.floor((Date.now() - Number(startStr)) / 1000));
+        if (elapsed < discussionTimeSeconds) {
+          return Math.max(1, discussionTimeSeconds - elapsed);
+        }
+        return 0;
+      }
+    }
+    return discussionTimeSeconds;
+  });
+
+  const [selectedTarget, setSelectedTarget] = useState<string | "SKIP" | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved =
+        localStorage.getItem(`user_voted_target_${roomId}_${currentPlayerId}`) ||
+        (roomCode ? localStorage.getItem(`user_voted_target_${roomCode.toUpperCase()}_${currentPlayerId}`) : null);
+      if (saved) return saved as string | "SKIP";
+    }
+    return null;
+  });
+
+  const [hasConfirmed, setHasConfirmed] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved =
+        localStorage.getItem(`user_voted_target_${roomId}_${currentPlayerId}`) ||
+        (roomCode ? localStorage.getItem(`user_voted_target_${roomCode.toUpperCase()}_${currentPlayerId}`) : null);
+      if (saved) return true;
+    }
+    return false;
+  });
+
+  const [timeLeft, setTimeLeft] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const startStr =
+        localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
+        (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : null);
+      if (startStr) {
+        const elapsed = Math.max(0, Math.floor((Date.now() - Number(startStr)) / 1000));
+        if (elapsed >= discussionTimeSeconds && elapsed < discussionTimeSeconds + votingTimeSeconds) {
+          return Math.max(1, discussionTimeSeconds + votingTimeSeconds - elapsed);
+        }
+      }
+    }
+    return votingTimeSeconds;
+  });
   const [resultTimeLeft, setResultTimeLeft] = useState<number>(6);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -223,6 +282,14 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
   const handleSkipDiscussion = async () => {
     setPhase("VOTING");
     setTimeLeft(votingTimeSeconds);
+
+    if (typeof window !== "undefined") {
+      const adjustedStart = Date.now() - (discussionTimeSeconds * 1000);
+      localStorage.setItem(`emergency_meeting_start_${roomId}`, String(adjustedStart));
+      if (roomCode) {
+        localStorage.setItem(`emergency_meeting_start_${roomCode.toUpperCase()}`, String(adjustedStart));
+      }
+    }
 
     const skipPayload = {
       triggeredBy: currentPlayerId,
@@ -393,6 +460,14 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
       return () => clearInterval(timer);
     } else if (resultTimeLeft === 0 && !hasCalledEndedRef.current) {
       hasCalledEndedRef.current = true;
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(`emergency_meeting_start_${roomId}`);
+        localStorage.removeItem(`user_voted_target_${roomId}_${currentPlayerId}`);
+        if (roomCode) {
+          localStorage.removeItem(`emergency_meeting_start_${roomCode.toUpperCase()}`);
+          localStorage.removeItem(`user_voted_target_${roomCode.toUpperCase()}_${currentPlayerId}`);
+        }
+      }
       if (onVotingEnded) {
         onVotingEnded({
           ejectedPlayerId: votingOutcome?.ejectedPlayer?.id || null,
@@ -403,7 +478,7 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
         });
       }
     }
-  }, [resultTimeLeft, phase, votingOutcome, onVotingEnded]);
+  }, [resultTimeLeft, phase, votingOutcome, onVotingEnded, roomId, roomCode, currentPlayerId]);
 
   // Confirmar Voto
   const handleConfirmVote = async (target: string | "SKIP") => {
@@ -413,6 +488,12 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
     try {
       setHasConfirmed(true);
       setSelectedTarget(target);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`user_voted_target_${roomId}_${currentPlayerId}`, target);
+        if (roomCode) {
+          localStorage.setItem(`user_voted_target_${roomCode.toUpperCase()}_${currentPlayerId}`, target);
+        }
+      }
 
       const updatedVotes = {
         ...votesMap,

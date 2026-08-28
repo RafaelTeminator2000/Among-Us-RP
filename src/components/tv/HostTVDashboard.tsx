@@ -19,6 +19,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
   const [players, setPlayers] = useState<PlayerGameState[]>(initialPlayers);
   const [gameState, setGameState] = useState<'LOBBY' | 'PLAYING' | 'EMERGENCY_MEETING' | 'ENDED' | 'FINISHED'>('LOBBY');
   const [taskCount, setTaskCount] = useState<number>(4);
+  const [impostorCount, setImpostorCount] = useState<number>(1);
   const [activeSabotages, setActiveSabotages] = useState<SabotageType[]>([]);
   const [sabotageSecondsLeft, setSabotageSecondsLeft] = useState<number | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
@@ -58,6 +59,8 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
           if (roomByCode.rules) {
             const tc = (roomByCode.rules as any).task_count || (roomByCode.rules as any).taskCount;
             if (tc) setTaskCount(Number(tc));
+            const imp = (roomByCode.rules as any).impostor_count || (roomByCode.rules as any).impostorCount;
+            if (imp) setImpostorCount(Number(imp));
           }
           if ((roomByCode as any).is_lights_sabotaged) {
             setActiveSabotages((prev) => Array.from(new Set([...prev, 'LIGHTS' as SabotageType])));
@@ -76,6 +79,8 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
           if (room.rules) {
             const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
             if (tc) setTaskCount(Number(tc));
+            const imp = (room.rules as any).impostor_count || (room.rules as any).impostorCount;
+            if (imp) setImpostorCount(Number(imp));
           }
           if ((room as any).is_lights_sabotaged) {
             setActiveSabotages((prev) => Array.from(new Set([...prev, 'LIGHTS' as SabotageType])));
@@ -180,6 +185,8 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     onGameStarted: (payload) => {
       const tc = payload?.rules?.taskCount || payload?.rules?.task_count;
       if (tc) setTaskCount(Number(tc));
+      const imp = payload?.rules?.impostorCount || payload?.rules?.impostor_count;
+      if (imp) setImpostorCount(Number(imp));
       setActiveSabotages([]);
       setSabotageSecondsLeft(null);
       stopAll();
@@ -457,14 +464,28 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     );
   }
 
-  // Recálculo dinâmico de tarefas considerando APENAS tripulantes (denominador fixo pela contagem total)
+  // Recálculo dinâmico de tarefas considerando APENAS tripulantes (desconsiderando a cota de impostores configurada)
   const alivePlayers = players.filter((p) => p.is_alive);
-  const crewmates = players.filter((p) => p.role !== 'IMPOSTOR');
-  const aliveCrewmates = crewmates.filter((p) => p.is_alive);
-  const totalCrewmates = crewmates.length > 0 ? crewmates.length : Math.max(1, players.length);
+  const knownCrewmates = players.filter((p) => p.role !== 'IMPOSTOR');
+  const knownImpostors = players.filter((p) => p.role === 'IMPOSTOR');
+
+  // Se os papéis não foram expostos na TV (sigilo de papel), subtrair a cota de impostores configurada
+  const totalCrewmates = knownImpostors.length > 0
+    ? knownCrewmates.length
+    : Math.max(1, players.length - impostorCount);
+
+  const aliveCrewmates = knownImpostors.length > 0
+    ? knownCrewmates.filter((p) => p.is_alive)
+    : players.filter((p) => p.is_alive);
+
   const totalTasks = Math.max(1, totalCrewmates * taskCount);
-  const completedTasks = crewmates.reduce((acc, curr) => {
-    const count = typeof curr.completed_tasks === 'number' ? curr.completed_tasks : 0;
+  const completedTasks = players.reduce((acc, curr) => {
+    if (curr.role === 'IMPOSTOR') return acc;
+    const count = Array.isArray(curr.completed_tasks)
+      ? curr.completed_tasks.length
+      : typeof curr.completed_tasks === 'number'
+      ? curr.completed_tasks
+      : 0;
     return acc + count;
   }, 0);
   const taskProgress = Math.min(100, Math.round((completedTasks / totalTasks) * 100));

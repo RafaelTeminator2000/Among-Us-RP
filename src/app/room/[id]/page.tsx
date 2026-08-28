@@ -133,7 +133,15 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
     return '#ef4444';
   });
-  const [reporterName, setReporterName] = useState<string>('Tripulante');
+  const [reporterName, setReporterName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved =
+        localStorage.getItem(`reporter_name_${roomId}`) ||
+        localStorage.getItem(`reporter_name_${roomId.toUpperCase()}`);
+      if (saved) return saved;
+    }
+    return 'Tripulante';
+  });
   const [discussionTimeSeconds, setDiscussionTimeSeconds] = useState<number>(30);
   const [votingTimeSeconds, setVotingTimeSeconds] = useState<number>(35);
   const [allPlayers, setAllPlayers] = useState<PlayerGameState[]>(() => {
@@ -939,8 +947,21 @@ export default function RoomPage({ params }: RoomPageProps) {
       playEmergencyBuzzer();
       if (payload?.reporterName) {
         setReporterName(payload.reporterName);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`reporter_name_${roomId}`, payload.reporterName);
+          if (roomCode) localStorage.setItem(`reporter_name_${roomCode.toUpperCase()}`, payload.reporterName);
+        }
       }
       setRoomStatus('EMERGENCY_MEETING');
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`room_status_${roomId}`, 'EMERGENCY_MEETING');
+        const startTs = (payload as any)?.timestamp || Date.now();
+        localStorage.setItem(`emergency_meeting_start_${roomId}`, String(startTs));
+        if (roomCode) {
+          localStorage.setItem(`room_status_${roomCode.toUpperCase()}`, 'EMERGENCY_MEETING');
+          localStorage.setItem(`emergency_meeting_start_${roomCode.toUpperCase()}`, String(startTs));
+        }
+      }
     },
     onSabotageTriggered: (payload) => {
       const type = ((payload?.type || 'LIGHTS') as string).toUpperCase() as SabotageType;
@@ -1509,6 +1530,21 @@ export default function RoomPage({ params }: RoomPageProps) {
             }).catch(() => {});
           } else {
             setRoomStatus('PLAYING');
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem(`emergency_meeting_start_${roomId}`);
+              localStorage.removeItem(`user_voted_target_${roomId}_${playerId}`);
+              localStorage.setItem(`room_status_${roomId}`, 'PLAYING');
+              if (roomCode) {
+                localStorage.removeItem(`emergency_meeting_start_${roomCode.toUpperCase()}`);
+                localStorage.removeItem(`user_voted_target_${roomCode.toUpperCase()}_${playerId}`);
+                localStorage.setItem(`room_status_${roomCode.toUpperCase()}`, 'PLAYING');
+              }
+            }
+            if (isValidUuid(roomId)) {
+              void supabase.from('rooms').update({ status: 'PLAYING' }).eq('id', roomId);
+            } else if (roomCode) {
+              void supabase.from('rooms').update({ status: 'PLAYING' }).eq('code', roomCode.toUpperCase());
+            }
             const ejectedName = result.ejectedPlayerName || 'Jogador';
             if (result.isImpostor) {
               setTaskFeedback(`⚠️ ${ejectedName} ERA um Impostor! A partida continua.`);
@@ -1522,11 +1558,26 @@ export default function RoomPage({ params }: RoomPageProps) {
         });
       } else {
         setRoomStatus('PLAYING');
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(`emergency_meeting_start_${roomId}`);
+          localStorage.removeItem(`user_voted_target_${roomId}_${playerId}`);
+          localStorage.setItem(`room_status_${roomId}`, 'PLAYING');
+          if (roomCode) {
+            localStorage.removeItem(`emergency_meeting_start_${roomCode.toUpperCase()}`);
+            localStorage.removeItem(`user_voted_target_${roomCode.toUpperCase()}_${playerId}`);
+            localStorage.setItem(`room_status_${roomCode.toUpperCase()}`, 'PLAYING');
+          }
+        }
+        if (isValidUuid(roomId)) {
+          void supabase.from('rooms').update({ status: 'PLAYING' }).eq('id', roomId);
+        } else if (roomCode) {
+          void supabase.from('rooms').update({ status: 'PLAYING' }).eq('code', roomCode.toUpperCase());
+        }
         setTaskFeedback('⚖️ Ninguém foi ejetado da nave. A partida continua.');
         setTimeout(() => setTaskFeedback(null), 4000);
       }
     },
-    [playerId, stopAll, playTaskBeep, playEmergencyBuzzer, broadcastEvent, rolesMap]
+    [playerId, stopAll, playTaskBeep, playEmergencyBuzzer, broadcastEvent, rolesMap, roomId, roomCode, supabase]
   );
 
   // Countdown automático para retorno ao lobby após vitória dos tripulantes
@@ -2011,18 +2062,32 @@ export default function RoomPage({ params }: RoomPageProps) {
     setReporterName(myName);
     setRoomStatus('EMERGENCY_MEETING');
 
-    broadcastEvent('EMERGENCY_MEETING', {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`room_status_${roomId}`, 'EMERGENCY_MEETING');
+      localStorage.setItem(`reporter_name_${roomId}`, myName);
+      localStorage.setItem(`emergency_meeting_start_${roomId}`, String(Date.now()));
+      if (roomCode) {
+        localStorage.setItem(`room_status_${roomCode.toUpperCase()}`, 'EMERGENCY_MEETING');
+        localStorage.setItem(`reporter_name_${roomCode.toUpperCase()}`, myName);
+        localStorage.setItem(`emergency_meeting_start_${roomCode.toUpperCase()}`, String(Date.now()));
+      }
+    }
+
+    const meetingPayload = {
       reporterId: playerId,
       reporterName: myName,
       deadPlayerName,
       timestamp: Date.now(),
-    });
-    broadcastEvent('emergency_meeting', {
-      reporterId: playerId,
-      reporterName: myName,
-      deadPlayerName,
-      timestamp: Date.now(),
-    });
+    };
+
+    broadcastEvent('EMERGENCY_MEETING', meetingPayload);
+    broadcastEvent('emergency_meeting', meetingPayload);
+
+    if (isValidUuid(roomId)) {
+      void supabase.from('rooms').update({ status: 'EMERGENCY_MEETING' }).eq('id', roomId);
+    } else if (roomCode) {
+      void supabase.from('rooms').update({ status: 'EMERGENCY_MEETING' }).eq('code', roomCode.toUpperCase());
+    }
   };
 
   // Helper para contar tarefas de um jogador de forma segura (lidando com arrays ou números)
@@ -2040,12 +2105,18 @@ export default function RoomPage({ params }: RoomPageProps) {
   };
 
   // Calcular progresso de tarefas da equipe (apenas Tripulantes - denominador fixo pela contagem total)
+  const knownImpostorCount = allPlayers.filter((p) => (rolesMap[p.id] || p.role) === 'IMPOSTOR').length;
   const crewmates = allPlayers.filter((p) => (rolesMap[p.id] || p.role) !== 'IMPOSTOR');
-  const totalCrewmatesCount = crewmates.length > 0 ? crewmates.length : Math.max(1, allPlayers.length);
+  const totalCrewmatesCount = knownImpostorCount > 0
+    ? crewmates.length
+    : Math.max(1, allPlayers.length - 1);
   const totalTasksCount = Math.max(1, totalCrewmatesCount * taskCount);
   const myCompletedCount = completedTasks.length;
   const globalCompletedCount = crewmates.length > 0
-    ? crewmates.reduce((acc, curr) => acc + getPlayerTaskCount(curr, curr.id === playerId), 0)
+    ? crewmates.reduce((acc, curr) => {
+        if ((rolesMap[curr.id] || curr.role) === 'IMPOSTOR') return acc;
+        return acc + getPlayerTaskCount(curr, curr.id === playerId);
+      }, 0)
     : myCompletedCount;
   const progressPercentage = Math.min(100, Math.round((globalCompletedCount / totalTasksCount) * 100));
 

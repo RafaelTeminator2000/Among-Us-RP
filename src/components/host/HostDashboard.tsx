@@ -569,6 +569,48 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           `🚨 REUNIÃO DE EMERGÊNCIA acionada por ${payload?.reporterName || "Tripulante"}!`,
           ...prev.slice(0, 8),
         ]);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`host_room_status_${roomId}`, "EMERGENCY_MEETING");
+          localStorage.setItem(`emergency_meeting_start_${roomId}`, String(payload?.timestamp || Date.now()));
+        }
+        const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
+        if (isValidUuid) {
+          void supabase.from("rooms").update({ status: "EMERGENCY_MEETING" }).eq("id", roomId);
+        } else if (roomCode) {
+          void supabase.from("rooms").update({ status: "EMERGENCY_MEETING" }).eq("code", roomCode.toUpperCase());
+        }
+      })
+      .on("broadcast", { event: "EMERGENCY_MEETING" }, ({ payload }) => {
+        setActionLogs((prev) => [
+          `🚨 REUNIÃO DE EMERGÊNCIA acionada por ${payload?.reporterName || "Tripulante"}!`,
+          ...prev.slice(0, 8),
+        ]);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`host_room_status_${roomId}`, "EMERGENCY_MEETING");
+          localStorage.setItem(`emergency_meeting_start_${roomId}`, String(payload?.timestamp || Date.now()));
+        }
+        const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
+        if (isValidUuid) {
+          void supabase.from("rooms").update({ status: "EMERGENCY_MEETING" }).eq("id", roomId);
+        } else if (roomCode) {
+          void supabase.from("rooms").update({ status: "EMERGENCY_MEETING" }).eq("code", roomCode.toUpperCase());
+        }
+      })
+      .on("broadcast", { event: "emergency_meeting" }, ({ payload }) => {
+        setActionLogs((prev) => [
+          `🚨 REUNIÃO DE EMERGÊNCIA acionada por ${payload?.reporterName || "Tripulante"}!`,
+          ...prev.slice(0, 8),
+        ]);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`host_room_status_${roomId}`, "EMERGENCY_MEETING");
+          localStorage.setItem(`emergency_meeting_start_${roomId}`, String(payload?.timestamp || Date.now()));
+        }
+        const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
+        if (isValidUuid) {
+          void supabase.from("rooms").update({ status: "EMERGENCY_MEETING" }).eq("id", roomId);
+        } else if (roomCode) {
+          void supabase.from("rooms").update({ status: "EMERGENCY_MEETING" }).eq("code", roomCode.toUpperCase());
+        }
       })
       .on("broadcast", { event: "CREWMATE_VICTORY" }, ({ payload }) => {
         setStatusMessage("🎉 Vitória dos Tripulantes! Todas as tarefas foram concluídas (100%).");
@@ -792,18 +834,47 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
 
   // Disparar Reunião Forçada pelo Host
   const handleForceMeeting = async () => {
+    const meetingPayload = {
+      reporterId: "HOST_CONSOLE",
+      reporterName: "HOST (Console Central)",
+      discussionTime,
+      votingTime,
+      timestamp: Date.now(),
+    };
+
     if (channelRef.current) {
       await channelRef.current.send({
         type: "broadcast",
         event: "EMERGENCY_TRIGGERED",
-        payload: {
-          reporterId: "HOST_CONSOLE",
-          reporterName: "HOST (Console Central)",
-          discussionTime,
-          votingTime,
-        },
+        payload: meetingPayload,
+      });
+      await channelRef.current.send({
+        type: "broadcast",
+        event: "EMERGENCY_MEETING",
+        payload: meetingPayload,
+      });
+      await channelRef.current.send({
+        type: "broadcast",
+        event: "emergency_meeting",
+        payload: meetingPayload,
       });
       setActionLogs((prev) => ["🚨 Reunião forçada disparada pelo Host!", ...prev.slice(0, 8)]);
+    }
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`host_room_status_${roomId}`, "EMERGENCY_MEETING");
+      localStorage.setItem(`emergency_meeting_start_${roomId}`, String(Date.now()));
+      if (roomCode) {
+        localStorage.setItem(`host_room_status_${roomCode.toUpperCase()}`, "EMERGENCY_MEETING");
+        localStorage.setItem(`emergency_meeting_start_${roomCode.toUpperCase()}`, String(Date.now()));
+      }
+    }
+
+    const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId);
+    if (isValidUuid) {
+      await supabase.from("rooms").update({ status: "EMERGENCY_MEETING" }).eq("id", roomId);
+    } else if (roomCode) {
+      await supabase.from("rooms").update({ status: "EMERGENCY_MEETING" }).eq("code", roomCode.toUpperCase());
     }
   };
 
