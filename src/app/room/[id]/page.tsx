@@ -142,8 +142,33 @@ export default function RoomPage({ params }: RoomPageProps) {
     }
     return 'Tripulante';
   });
-  const [discussionTimeSeconds, setDiscussionTimeSeconds] = useState<number>(30);
-  const [votingTimeSeconds, setVotingTimeSeconds] = useState<number>(35);
+  const [discussionTimeSeconds, setDiscussionTimeSeconds] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const stored =
+        localStorage.getItem(`room_disc_time_${roomId}`) ||
+        localStorage.getItem(`room_disc_time_${roomId.toUpperCase()}`);
+      if (stored) return Number(stored);
+    }
+    return 15;
+  });
+  const [votingTimeSeconds, setVotingTimeSeconds] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const stored =
+        localStorage.getItem(`room_vote_time_${roomId}`) ||
+        localStorage.getItem(`room_vote_time_${roomId.toUpperCase()}`);
+      if (stored) return Number(stored);
+    }
+    return 30;
+  });
+  const [emergencyMeetingStartTime, setEmergencyMeetingStartTime] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const stored =
+        localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
+        localStorage.getItem(`emergency_meeting_start_${roomId.toUpperCase()}`);
+      if (stored) return Number(stored);
+    }
+    return 0;
+  });
   const [allPlayers, setAllPlayers] = useState<PlayerGameState[]>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -604,17 +629,40 @@ export default function RoomPage({ params }: RoomPageProps) {
         if (tc) setTaskCount(Number(tc));
         const sCd = (room.rules as any).sabotage_cooldown || (room.rules as any).sabotageCooldown;
         if (sCd) setSabotageBaseCooldown(Number(sCd));
-        if (room.rules.discussion_time || room.rules.discussionTime) {
-          setDiscussionTimeSeconds(Number(room.rules.discussion_time || room.rules.discussionTime));
+
+        const dt = Number((room.rules as any).discussion_time ?? (room.rules as any).discussionTime ?? 15);
+        setDiscussionTimeSeconds(dt);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`room_disc_time_${roomId}`, String(dt));
+          if (room.code) localStorage.setItem(`room_disc_time_${room.code.toUpperCase()}`, String(dt));
         }
-        if (room.rules.voting_time || room.rules.votingTime) {
-          setVotingTimeSeconds(Number(room.rules.voting_time || room.rules.votingTime));
+
+        const vt = Number((room.rules as any).voting_time ?? (room.rules as any).votingTime ?? 30);
+        setVotingTimeSeconds(vt);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`room_vote_time_${roomId}`, String(vt));
+          if (room.code) localStorage.setItem(`room_vote_time_${room.code.toUpperCase()}`, String(vt));
         }
       }
 
       if (room.status === 'PLAYING' && room.updated_at) {
         const timeFromRoom = new Date(room.updated_at).getTime();
         setGameStartTime((prev) => (prev === 0 ? timeFromRoom : prev));
+      }
+
+      if (room.status === 'EMERGENCY_MEETING' && room.updated_at) {
+        const meetingTs = new Date(room.updated_at).getTime();
+        setEmergencyMeetingStartTime((prev) => {
+          const valid = prev > 0 ? prev : meetingTs;
+          if (typeof window !== 'undefined') {
+            const existing = localStorage.getItem(`emergency_meeting_start_${roomId}`);
+            if (!existing) {
+              localStorage.setItem(`emergency_meeting_start_${roomId}`, String(valid));
+              if (room.code) localStorage.setItem(`emergency_meeting_start_${room.code.toUpperCase()}`, String(valid));
+            }
+          }
+          return valid;
+        });
       }
 
       // Sincronizar sabotagens ativas da sala
@@ -2230,6 +2278,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           rolesMap={rolesMap}
           discussionTimeSeconds={discussionTimeSeconds}
           votingTimeSeconds={votingTimeSeconds}
+          meetingStartTime={emergencyMeetingStartTime}
           isHost={isCurrentUserHost}
           sendBroadcast={broadcastEvent}
           onVotingEnded={handleVotingEnded}

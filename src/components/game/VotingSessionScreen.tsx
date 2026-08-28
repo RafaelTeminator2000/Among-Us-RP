@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Siren,
@@ -42,6 +42,7 @@ interface VotingSessionProps {
   rolesMap?: Record<string, "CREWMATE" | "IMPOSTOR">;
   discussionTimeSeconds?: number;
   votingTimeSeconds?: number;
+  meetingStartTime?: number;
   confirmEjects?: boolean;
   isHost?: boolean;
   sendBroadcast?: (event: string, payload: any) => Promise<void>;
@@ -70,11 +71,23 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
   rolesMap,
   discussionTimeSeconds = 15,
   votingTimeSeconds = 30,
+  meetingStartTime,
   confirmEjects = true,
   isHost = false,
   sendBroadcast,
   onVotingEnded,
 }) => {
+  const getMeetingStartTime = useCallback(() => {
+    if (meetingStartTime && meetingStartTime > 0) return meetingStartTime;
+    if (typeof window !== "undefined") {
+      const startStr =
+        localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
+        (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : null);
+      if (startStr) return Number(startStr);
+    }
+    return 0;
+  }, [meetingStartTime, roomId, roomCode]);
+
   const [players, setPlayers] = useState<VotingPlayer[]>(() => {
     if (connectedPlayers && connectedPlayers.length > 0) {
       return connectedPlayers;
@@ -83,34 +96,42 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
   });
 
   const [phase, setPhase] = useState<"DISCUSSION" | "VOTING" | "RESULTS">(() => {
-    if (typeof window !== "undefined") {
-      const startStr =
-        localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
-        (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : null);
-      if (startStr) {
-        const elapsed = Math.max(0, Math.floor((Date.now() - Number(startStr)) / 1000));
-        if (elapsed < discussionTimeSeconds) {
-          return "DISCUSSION";
-        } else if (elapsed < discussionTimeSeconds + votingTimeSeconds) {
-          return "VOTING";
-        }
+    const startTs =
+      meetingStartTime ||
+      (typeof window !== "undefined"
+        ? Number(
+            localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
+            (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : 0)
+          )
+        : 0);
+
+    if (startTs > 0) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+      if (elapsed < discussionTimeSeconds) {
+        return "DISCUSSION";
+      } else if (elapsed < discussionTimeSeconds + votingTimeSeconds) {
+        return "VOTING";
       }
     }
     return discussionTimeSeconds > 0 ? "DISCUSSION" : "VOTING";
   });
 
   const [discussionTimeLeft, setDiscussionTimeLeft] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const startStr =
-        localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
-        (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : null);
-      if (startStr) {
-        const elapsed = Math.max(0, Math.floor((Date.now() - Number(startStr)) / 1000));
-        if (elapsed < discussionTimeSeconds) {
-          return Math.max(1, discussionTimeSeconds - elapsed);
-        }
-        return 0;
+    const startTs =
+      meetingStartTime ||
+      (typeof window !== "undefined"
+        ? Number(
+            localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
+            (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : 0)
+          )
+        : 0);
+
+    if (startTs > 0) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+      if (elapsed < discussionTimeSeconds) {
+        return Math.max(1, discussionTimeSeconds - elapsed);
       }
+      return 0;
     }
     return discussionTimeSeconds;
   });
@@ -136,15 +157,19 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
   });
 
   const [timeLeft, setTimeLeft] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const startStr =
-        localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
-        (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : null);
-      if (startStr) {
-        const elapsed = Math.max(0, Math.floor((Date.now() - Number(startStr)) / 1000));
-        if (elapsed >= discussionTimeSeconds && elapsed < discussionTimeSeconds + votingTimeSeconds) {
-          return Math.max(1, discussionTimeSeconds + votingTimeSeconds - elapsed);
-        }
+    const startTs =
+      meetingStartTime ||
+      (typeof window !== "undefined"
+        ? Number(
+            localStorage.getItem(`emergency_meeting_start_${roomId}`) ||
+            (roomCode ? localStorage.getItem(`emergency_meeting_start_${roomCode.toUpperCase()}`) : 0)
+          )
+        : 0);
+
+    if (startTs > 0) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+      if (elapsed >= discussionTimeSeconds && elapsed < discussionTimeSeconds + votingTimeSeconds) {
+        return Math.max(1, discussionTimeSeconds + votingTimeSeconds - elapsed);
       }
     }
     return votingTimeSeconds;
@@ -247,7 +272,25 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
 
     channel
       .on("broadcast", { event: "SKIP_DISCUSSION" }, ({ payload }) => {
+        if (payload?.adjustedStartTime && typeof window !== "undefined") {
+          localStorage.setItem(`emergency_meeting_start_${roomId}`, String(payload.adjustedStartTime));
+          if (roomCode) {
+            localStorage.setItem(`emergency_meeting_start_${roomCode.toUpperCase()}`, String(payload.adjustedStartTime));
+          }
+        }
         setPhase("VOTING");
+        setDiscussionTimeLeft(0);
+        setTimeLeft(payload?.votingTimeSeconds || votingTimeSeconds);
+      })
+      .on("broadcast", { event: "skip_discussion" }, ({ payload }) => {
+        if (payload?.adjustedStartTime && typeof window !== "undefined") {
+          localStorage.setItem(`emergency_meeting_start_${roomId}`, String(payload.adjustedStartTime));
+          if (roomCode) {
+            localStorage.setItem(`emergency_meeting_start_${roomCode.toUpperCase()}`, String(payload.adjustedStartTime));
+          }
+        }
+        setPhase("VOTING");
+        setDiscussionTimeLeft(0);
         setTimeLeft(payload?.votingTimeSeconds || votingTimeSeconds);
       })
       .on("broadcast", { event: "PLAYER_VOTED" }, ({ payload }) => {
@@ -277,22 +320,24 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [topicKey, supabase, votingTimeSeconds]);
+  }, [topicKey, supabase, votingTimeSeconds, roomId, roomCode]);
 
   const handleSkipDiscussion = async () => {
-    setPhase("VOTING");
-    setTimeLeft(votingTimeSeconds);
-
+    const adjustedStart = Date.now() - (discussionTimeSeconds * 1000);
     if (typeof window !== "undefined") {
-      const adjustedStart = Date.now() - (discussionTimeSeconds * 1000);
       localStorage.setItem(`emergency_meeting_start_${roomId}`, String(adjustedStart));
       if (roomCode) {
         localStorage.setItem(`emergency_meeting_start_${roomCode.toUpperCase()}`, String(adjustedStart));
       }
     }
 
+    setPhase("VOTING");
+    setDiscussionTimeLeft(0);
+    setTimeLeft(votingTimeSeconds);
+
     const skipPayload = {
       triggeredBy: currentPlayerId,
+      adjustedStartTime: adjustedStart,
       votingTimeSeconds,
       timestamp: Date.now(),
     };
@@ -310,20 +355,36 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
     }
   };
 
-  // Timer de Discussão
+  // Sincronizador de Relógio Mestre: calcula tempo decorrido absoluto em relação a meetingStartTime
   useEffect(() => {
-    if (phase !== "DISCUSSION") return;
+    if (phase === "RESULTS") return;
 
-    if (discussionTimeLeft > 0) {
-      const timer = setInterval(() => {
-        setDiscussionTimeLeft((prev) => (prev > 1 ? prev - 1 : 0));
-      }, 1000);
-      return () => clearInterval(timer);
-    } else if (discussionTimeLeft === 0) {
-      setPhase("VOTING");
-      setTimeLeft(votingTimeSeconds);
-    }
-  }, [discussionTimeLeft, phase, votingTimeSeconds]);
+    const syncClock = () => {
+      const startTs = getMeetingStartTime();
+      if (!startTs || startTs <= 0) return;
+
+      const elapsed = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+      const discTotal = discussionTimeSeconds;
+      const voteTotal = votingTimeSeconds;
+
+      if (elapsed < discTotal) {
+        setPhase("DISCUSSION");
+        setDiscussionTimeLeft(Math.max(1, discTotal - elapsed));
+      } else if (elapsed < discTotal + voteTotal) {
+        setPhase("VOTING");
+        setDiscussionTimeLeft(0);
+        setTimeLeft(Math.max(1, discTotal + voteTotal - elapsed));
+      } else {
+        setDiscussionTimeLeft(0);
+        setTimeLeft(0);
+        computeAndFinalizeVotes(votesMap);
+      }
+    };
+
+    syncClock();
+    const interval = setInterval(syncClock, 1000);
+    return () => clearInterval(interval);
+  }, [phase, getMeetingStartTime, discussionTimeSeconds, votingTimeSeconds, votesMap]);
 
   // Computar votos
   const computeAndFinalizeVotes = (finalVotes: Record<string, string | "SKIP">) => {
@@ -423,20 +484,6 @@ export const VotingSessionScreen: React.FC<VotingSessionProps> = ({
       }).catch(() => {});
     }
   };
-
-  // Timer de Votação
-  useEffect(() => {
-    if (phase !== "VOTING") return;
-
-    if (timeLeft > 0) {
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => (prev > 1 ? prev - 1 : 0));
-      }, 1000);
-      return () => clearInterval(timer);
-    } else if (timeLeft === 0) {
-      computeAndFinalizeVotes(votesMap);
-    }
-  }, [timeLeft, phase, votesMap]);
 
   // Se todos vivos votaram
   useEffect(() => {

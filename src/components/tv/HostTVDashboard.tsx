@@ -118,8 +118,14 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
           .eq('room_id', targetUuid)
           .order('created_at', { ascending: true });
 
-        if (eventsData) {
+        if (eventsData && eventsData.length > 0) {
           setGameEvents(eventsData as GameEventRecord[]);
+          const lastVictory = [...eventsData]
+            .reverse()
+            .find((e) => e.event_type === 'CREWMATE_VICTORY' || e.event_type === 'IMPOSTOR_VICTORY');
+          if (lastVictory) {
+            setWinnerTeam(lastVictory.event_type === 'IMPOSTOR_VICTORY' ? 'IMPOSTOR' : 'CREWMATE');
+          }
         }
       }
     };
@@ -154,8 +160,14 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
           .eq('room_id', targetUuid)
           .order('created_at', { ascending: true });
 
-        if (eventsData) {
+        if (eventsData && eventsData.length > 0) {
           setGameEvents(eventsData as GameEventRecord[]);
+          const lastVictory = [...eventsData]
+            .reverse()
+            .find((e) => e.event_type === 'CREWMATE_VICTORY' || e.event_type === 'IMPOSTOR_VICTORY');
+          if (lastVictory) {
+            setWinnerTeam(lastVictory.event_type === 'IMPOSTOR_VICTORY' ? 'IMPOSTOR' : 'CREWMATE');
+          }
         }
       };
 
@@ -183,6 +195,8 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     playerRole: null,
     isAlive: true,
     onGameStarted: (payload) => {
+      setWinnerTeam(null);
+      setGameState('PLAYING');
       const tc = payload?.rules?.taskCount || payload?.rules?.task_count;
       if (tc) setTaskCount(Number(tc));
       const imp = payload?.rules?.impostorCount || payload?.rules?.impostor_count;
@@ -190,23 +204,59 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
       setActiveSabotages([]);
       setSabotageSecondsLeft(null);
       stopAll();
+      setPlayers((prev) =>
+        prev.map((p) => ({
+          ...p,
+          completed_tasks: 0,
+          is_alive: true,
+          has_voted: false,
+        }))
+      );
     },
     onRoomStatusChanged: (newStatus) => {
-      setGameState(newStatus as any);
-      if (newStatus === 'LOBBY' || newStatus === 'ENDED' || newStatus === 'FINISHED') {
+      const clean = (newStatus || '').toUpperCase();
+      if (clean === 'LOBBY') {
+        setWinnerTeam(null);
+        setGameState('LOBBY');
         setActiveSabotages([]);
         setSabotageSecondsLeft(null);
         stopAll();
+        setPlayers((prev) =>
+          prev.map((p) => ({
+            ...p,
+            completed_tasks: 0,
+            is_alive: true,
+            has_voted: false,
+          }))
+        );
+      } else if (clean === 'PLAYING') {
+        setWinnerTeam(null);
+        setGameState('PLAYING');
+        setActiveSabotages([]);
+        setSabotageSecondsLeft(null);
+        stopAll();
+      } else if (clean === 'EMERGENCY_MEETING') {
+        setGameState('EMERGENCY_MEETING');
+      } else if (clean === 'FINISHED' || clean === 'ENDED') {
+        setGameState('FINISHED');
+        stopAll();
+      }
+    },
+    onPlayerKilled: (payload) => {
+      if (payload?.victimId) {
+        setPlayers((prev) =>
+          prev.map((p) => (p.id === payload.victimId ? { ...p, is_alive: false } : p))
+        );
       }
     },
     onCrewmateVictory: (payload) => {
       setWinnerTeam('CREWMATE');
-      setGameState('ENDED');
+      setGameState('FINISHED');
       stopAll();
     },
     onImpostorVictory: (payload) => {
       setWinnerTeam('IMPOSTOR');
-      setGameState('ENDED');
+      setGameState('FINISHED');
       stopAll();
     },
     onSabotageTriggered: (payload) => {
@@ -414,18 +464,6 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     return () => stopAll();
   }, [gameState, isReactorSabotaged, isO2Sabotaged, audioEnabled, playSiren, playEmergencyBuzzer, stopAll]);
 
-  // Auto-retorno da TV ao Lobby após finalização da partida (10s para visualização do sumário)
-  useEffect(() => {
-    if (gameState !== 'ENDED' && gameState !== 'FINISHED') return;
-
-    const timer = setTimeout(() => {
-      setWinnerTeam(null);
-      setGameState('LOBBY');
-    }, 10000);
-
-    return () => clearTimeout(timer);
-  }, [gameState]);
-
   // Se a sala tiver sido encerrada pelo Host
   if (isRoomClosed) {
     return (
@@ -459,6 +497,11 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
         onReturnToLobby={() => {
           setWinnerTeam(null);
           setGameState('LOBBY');
+          if (isValidUuid(roomId)) {
+            void supabase.from('rooms').update({ status: 'LOBBY' }).eq('id', roomId);
+          } else if (displayCode) {
+            void supabase.from('rooms').update({ status: 'LOBBY' }).eq('code', displayCode.toUpperCase());
+          }
         }}
       />
     );
@@ -683,6 +726,16 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
                   </div>
                 </div>
               )}
+            </div>
+          ) : gameState === 'LOBBY' ? (
+            <div className="flex items-center gap-5 bg-cyan-950/40 border border-cyan-500/40 p-6 rounded-2xl mt-6">
+              <Users className="w-12 h-12 text-cyan-400 shrink-0 animate-pulse" />
+              <div>
+                <h3 className="text-xl font-bold text-slate-100">Lobby de Espera Presencial</h3>
+                <p className="text-sm text-cyan-300/80 mt-0.5">
+                  Aguardando todos os tripulantes se conectarem para o início da partida.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-5 bg-slate-900/80 border border-slate-800 p-6 rounded-2xl mt-6">
