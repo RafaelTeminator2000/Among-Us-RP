@@ -62,9 +62,41 @@ export default function RoomPage({ params }: RoomPageProps) {
   const isValidUuid = (str?: string) =>
     typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
-  const [roomStatus, setRoomStatus] = useState<RoomStatus>('LOBBY');
+  const [roomStatus, setRoomStatus] = useState<RoomStatus>(() => {
+    if (typeof window !== 'undefined') {
+      const saved =
+        localStorage.getItem(`room_status_${roomId}`) ||
+        localStorage.getItem(`room_status_${roomId.toUpperCase()}`);
+      if (saved === 'PLAYING' || saved === 'EMERGENCY_MEETING' || saved === 'FINISHED') {
+        return saved as RoomStatus;
+      }
+    }
+    return 'LOBBY';
+  });
   const [playerStatus, setPlayerStatus] = useState<'ALIVE' | 'ELIMINATED'>('ALIVE');
-  const [playerRole, setPlayerRole] = useState<'CREWMATE' | 'IMPOSTOR' | null>(null);
+  const [playerRole, setPlayerRole] = useState<'CREWMATE' | 'IMPOSTOR' | null>(() => {
+    if (typeof window !== 'undefined') {
+      const savedRole =
+        localStorage.getItem(`player_role_${roomId}`) ||
+        localStorage.getItem(`player_role_${roomId.toUpperCase()}`);
+      if (savedRole === 'CREWMATE' || savedRole === 'IMPOSTOR') {
+        return savedRole as 'CREWMATE' | 'IMPOSTOR';
+      }
+      const storedPlayerId =
+        localStorage.getItem(`room_player_${roomId}`) ||
+        localStorage.getItem('current_player_id');
+      const rolesMapStr =
+        localStorage.getItem(`room_roles_${roomId}`) ||
+        localStorage.getItem(`room_roles_${roomId.toUpperCase()}`);
+      if (rolesMapStr && storedPlayerId) {
+        try {
+          const parsed = JSON.parse(rolesMapStr);
+          if (parsed[storedPlayerId]) return parsed[storedPlayerId];
+        } catch {}
+      }
+    }
+    return null;
+  });
   const [playerId, setPlayerId] = useState<string>('');
   const [playerName, setPlayerName] = useState<string>('Jogador');
   const [playerColor, setPlayerColor] = useState<string>('#ef4444');
@@ -85,7 +117,19 @@ export default function RoomPage({ params }: RoomPageProps) {
     return 0;
   });
 
-  const [completedTasks, setCompletedTasks] = useState<string[]>([]);
+  const [completedTasks, setCompletedTasks] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      const stored =
+        localStorage.getItem(`completed_tasks_${roomId}`) ||
+        localStorage.getItem(`completed_tasks_${roomId.toUpperCase()}`);
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch {}
+      }
+    }
+    return [];
+  });
   const [isSabotaged, setIsSabotaged] = useState<boolean>(false);
   const [isLightsSabotaged, setIsLightsSabotaged] = useState<boolean>(false);
   const [showBreakerGame, setShowBreakerGame] = useState<boolean>(false);
@@ -278,18 +322,26 @@ export default function RoomPage({ params }: RoomPageProps) {
         setMapData(DEFAULT_DEMO_MAP);
       }
 
-      // Resolver UUID da sala caso roomId seja um código (ex: "A7X9") ou UUID
+      // Resolver UUID da sala caso roomId seja um código (ex: "8MKC") ou UUID
       let targetRoomUuid = roomId;
       if (!isValidUuid(roomId)) {
         const { data: roomByCode } = await supabase
           .from('rooms')
           .select('*')
           .eq('code', roomId.toUpperCase())
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
 
         if (roomByCode) {
           targetRoomUuid = roomByCode.id;
-          if (roomByCode.status) setRoomStatus(roomByCode.status as any);
+          if (roomByCode.status) {
+            setRoomStatus(roomByCode.status as any);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`room_status_${roomId}`, roomByCode.status);
+              localStorage.setItem(`room_status_${targetRoomUuid}`, roomByCode.status);
+            }
+          }
           if (roomByCode.map_data) setMapData(roomByCode.map_data as unknown as ScratchMapPlan);
           if (roomByCode.rules) {
             const tc = (roomByCode.rules as any).task_count || (roomByCode.rules as any).taskCount;
@@ -309,7 +361,13 @@ export default function RoomPage({ params }: RoomPageProps) {
           .maybeSingle();
 
         if (room) {
-          if (room.status) setRoomStatus(room.status as any);
+          if (room.status) {
+            setRoomStatus(room.status as any);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`room_status_${roomId}`, room.status);
+              if (room.code) localStorage.setItem(`room_status_${room.code}`, room.status);
+            }
+          }
           if (room.map_data) setMapData(room.map_data as unknown as ScratchMapPlan);
           if (room.rules) {
             const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
@@ -334,10 +392,19 @@ export default function RoomPage({ params }: RoomPageProps) {
         if (player) {
           if (player.player_name) setPlayerName(player.player_name);
           if (player.color_hex) setPlayerColor(player.color_hex);
-          if (player.role) setPlayerRole(player.role as any);
+          if (player.role) {
+            setPlayerRole(player.role as any);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`player_role_${roomId}`, player.role);
+              if (targetRoomUuid) localStorage.setItem(`player_role_${targetRoomUuid}`, player.role);
+            }
+          }
           if (player.status) setPlayerStatus(player.status as any);
           if (Array.isArray(player.completed_tasks)) {
             setCompletedTasks(player.completed_tasks as string[]);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`completed_tasks_${roomId}`, JSON.stringify(player.completed_tasks));
+            }
           }
         } else if (isValidUuid(targetRoomUuid)) {
           // Garantir cadastro do jogador na tabela room_players caso a sessão local exista
@@ -392,6 +459,10 @@ export default function RoomPage({ params }: RoomPageProps) {
     onGameStarted: (payload) => {
       initAudio();
       setRoomStatus('PLAYING');
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`room_status_${roomId}`, 'PLAYING');
+        localStorage.removeItem(`completed_tasks_${roomId}`);
+      }
       setVictoryModal(null);
       setCompletedTasks([]);
       setIsLightsSabotaged(false);
@@ -417,6 +488,9 @@ export default function RoomPage({ params }: RoomPageProps) {
         if (playerId && payload.roles[playerId]) {
           const newRole = payload.roles[playerId];
           setPlayerRole(newRole);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(`player_role_${roomId}`, newRole);
+          }
           setRoleRevealToast({ role: newRole });
           setTimeout(() => setRoleRevealToast(null), 4000);
         }
@@ -547,12 +621,19 @@ export default function RoomPage({ params }: RoomPageProps) {
     },
     onRoomStatusChanged: (newStatus) => {
       setRoomStatus(newStatus as any);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`room_status_${roomId}`, newStatus);
+      }
       if (newStatus === 'EMERGENCY_MEETING') {
         playEmergencyBuzzer();
       } else if (newStatus === 'PLAYING') {
         stopAll();
       } else if (newStatus === 'LOBBY') {
         stopAll();
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(`player_role_${roomId}`);
+          localStorage.removeItem(`completed_tasks_${roomId}`);
+        }
         setPlayerStatus('ALIVE');
         setCompletedTasks([]);
         setIsLightsSabotaged(false);
@@ -862,6 +943,11 @@ export default function RoomPage({ params }: RoomPageProps) {
   const handleReturnToLobby = useCallback(async () => {
     stopAll();
     setRoomStatus('LOBBY');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`room_status_${roomId}`, 'LOBBY');
+      localStorage.removeItem(`player_role_${roomId}`);
+      localStorage.removeItem(`completed_tasks_${roomId}`);
+    }
     setPlayerStatus('ALIVE');
     setCompletedTasks([]);
     setIsLightsSabotaged(false);
@@ -1286,6 +1372,9 @@ export default function RoomPage({ params }: RoomPageProps) {
 
     const newCompleted = [...completedTasks, taskId];
     setCompletedTasks(newCompleted);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`completed_tasks_${roomId}`, JSON.stringify(newCompleted));
+    }
     setSelectedTask(null);
     setActiveMinigame(null);
     playTaskBeep();
