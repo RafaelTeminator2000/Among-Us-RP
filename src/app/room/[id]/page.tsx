@@ -12,7 +12,7 @@ import { generateUUID } from '@/lib/utils';
 import { getRoomSyncStateAction } from '@/app/room/actions';
 import { PlayerTaskList } from '@/components/tasks/PlayerTaskList';
 import { ImpostorKillButton } from '@/components/game/ImpostorKillButton';
-import { ImpostorActionDrawer } from '@/components/game/ImpostorActionDrawer';
+import { ImpostorActionDrawer, SabotageType } from '@/components/game/ImpostorActionDrawer';
 import { VotingSessionScreen } from '@/components/game/VotingSessionScreen';
 import { EliminationScreen } from '@/components/minigames/EliminationScreen';
 import { TaskQrReader } from '@/components/minigames/TaskQrReader';
@@ -33,6 +33,7 @@ import { UploadDataMinigame } from '@/components/minigames/UploadDataMinigame';
 import { EmergencyButtonModal } from '@/components/minigames/EmergencyButtonModal';
 import { DarknessOverlay } from '@/components/game/DarknessOverlay';
 import { BreakerMinigame } from '@/components/minigames/BreakerMinigame';
+import { CommsMinigame } from '@/components/minigames/CommsMinigame';
 import { ScratchMapPlan, TaskNode, DEFAULT_DEMO_MAP } from '@/types/grid-editor';
 import { PlayerGameState, RoomStatus } from '@/types/game';
 import { getAssignedTasks } from '@/lib/game-utils';
@@ -52,6 +53,9 @@ import {
   Sparkles,
   AlertTriangle,
   Skull,
+  Atom,
+  Wind,
+  Radio,
 } from 'lucide-react';
 
 interface RoomPageProps {
@@ -145,7 +149,12 @@ export default function RoomPage({ params }: RoomPageProps) {
   });
   const [isSabotaged, setIsSabotaged] = useState<boolean>(false);
   const [isLightsSabotaged, setIsLightsSabotaged] = useState<boolean>(false);
+  const [activeSabotageType, setActiveSabotageType] = useState<SabotageType | null>(null);
+  const [sabotageSecondsLeft, setSabotageSecondsLeft] = useState<number | null>(null);
   const [showBreakerGame, setShowBreakerGame] = useState<boolean>(false);
+  const [showCommsGame, setShowCommsGame] = useState<boolean>(false);
+  const [showReactorGame, setShowReactorGame] = useState<boolean>(false);
+  const [showO2Game, setShowO2Game] = useState<boolean>(false);
   const [showReportScanner, setShowReportScanner] = useState<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<TaskNode | null>(null);
   const [activeMinigame, setActiveMinigame] = useState<
@@ -181,7 +190,7 @@ export default function RoomPage({ params }: RoomPageProps) {
   });
   const [victoryModal, setVictoryModal] = useState<{
     winnerTeam?: 'CREWMATE' | 'IMPOSTOR';
-    impostorName: string;
+    impostorName?: string;
     countdown: number;
     reason?: string;
   } | null>(null);
@@ -620,16 +629,31 @@ export default function RoomPage({ params }: RoomPageProps) {
       setRoomStatus('EMERGENCY_MEETING');
     },
     onSabotageTriggered: (payload) => {
-      if (!payload || payload.type === 'LIGHTS') {
+      const type = ((payload?.type || 'LIGHTS') as string).toUpperCase() as SabotageType;
+      setActiveSabotageType(type);
+      setIsSabotaged(true);
+
+      if (type === 'LIGHTS') {
         setIsLightsSabotaged(true);
-        setIsSabotaged(true);
-        playSiren();
+        // Luzes é sabotagem de mecânica (sem sirene contínua)
+      } else if (type === 'COMMS') {
+        setIsLightsSabotaged(false);
+        // Comunicações é sabotagem de mecânica (sem sirene contínua)
+      } else if (type === 'REACTOR' || type === 'O2') {
+        setIsLightsSabotaged(false);
+        setSabotageSecondsLeft(45);
+        playSiren(); // Sabotagens críticas tocam sirene contínua
       }
     },
     onSabotageFixed: () => {
+      setActiveSabotageType(null);
       setIsLightsSabotaged(false);
       setIsSabotaged(false);
+      setSabotageSecondsLeft(null);
       setShowBreakerGame(false);
+      setShowCommsGame(false);
+      setShowReactorGame(false);
+      setShowO2Game(false);
       stopAll();
     },
     onTaskCompleted: (payload) => {
@@ -1175,10 +1199,48 @@ export default function RoomPage({ params }: RoomPageProps) {
     }));
   }, [allPlayers, rolesMap, playerId, playerRole, roomStatus]);
 
+  // Contagem regressiva para sabotagens críticas (Reator e O2)
+  useEffect(() => {
+    if (!activeSabotageType || (activeSabotageType !== 'REACTOR' && activeSabotageType !== 'O2')) {
+      return;
+    }
+
+    if (sabotageSecondsLeft === null) return;
+
+    if (sabotageSecondsLeft <= 0) {
+      const reason =
+        activeSabotageType === 'REACTOR'
+          ? '💥 FUSÃO DO REATOR! O reator entrou em colapso e destruiu a nave.'
+          : '💨 ESGOTAMENTO DE OXIGÊNIO! As reservas de O2 zeraram e a tripulação sucumbiu.';
+
+      setVictoryModal({
+        winnerTeam: 'IMPOSTOR',
+        reason,
+        countdown: 10,
+      });
+
+      broadcastEvent('IMPOSTOR_VICTORY', {
+        winnerTeam: 'IMPOSTOR',
+        reason,
+        timestamp: Date.now(),
+      });
+
+      stopAll();
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setSabotageSecondsLeft((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [activeSabotageType, sabotageSecondsLeft, broadcastEvent, stopAll]);
+
   // Disparar Sabotagem pelo Impostor (Luzes, Reator, O2, Comunicações)
-  const handleTriggerSabotage = async (type: 'LIGHTS' | 'REACTOR' | 'O2' | 'COMMS' = 'LIGHTS') => {
+  const handleTriggerSabotage = async (type: SabotageType = 'LIGHTS') => {
+    setActiveSabotageType(type);
     setIsSabotaged(true);
-    playSiren();
+
     if (type === 'LIGHTS') {
       setIsLightsSabotaged(true);
       await triggerSabotage('LIGHTS');
@@ -1189,16 +1251,32 @@ export default function RoomPage({ params }: RoomPageProps) {
           .update({ is_lights_sabotaged: true })
           .eq('id', roomId);
       }
-    } else {
-      await triggerSabotage(type as any);
+    } else if (type === 'COMMS') {
+      setIsLightsSabotaged(false);
+      await triggerSabotage('COMMS' as any);
+    } else if (type === 'REACTOR') {
+      setIsLightsSabotaged(false);
+      setSabotageSecondsLeft(45);
+      playSiren();
+      await triggerSabotage('REACTOR');
+    } else if (type === 'O2') {
+      setIsLightsSabotaged(false);
+      setSabotageSecondsLeft(45);
+      playSiren();
+      await triggerSabotage('O2');
     }
   };
 
-  // Resolver Sabotagem de Luzes após minigame
-  const handleFixLightsSabotage = async () => {
+  // Resolver qualquer Sabotagem
+  const handleFixSabotage = async () => {
+    setActiveSabotageType(null);
     setIsLightsSabotaged(false);
     setIsSabotaged(false);
+    setSabotageSecondsLeft(null);
     setShowBreakerGame(false);
+    setShowCommsGame(false);
+    setShowReactorGame(false);
+    setShowO2Game(false);
     stopAll();
     await fixSabotage();
 
@@ -1761,6 +1839,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           playerRole={playerRole}
           roomId={roomId}
           playerId={playerId}
+          isCommsSabotaged={activeSabotageType === 'COMMS'}
         />
       </main>
 
@@ -2053,16 +2132,45 @@ export default function RoomPage({ params }: RoomPageProps) {
                   setActiveMinigame('emergency_button');
                   return;
                 }
+                // Sabotagem de Luzes
                 if (
                   isLightsSabotaged ||
                   cleanCode.includes('TASK_BREAKER') ||
                   cleanCode.includes('LIGHTS') ||
-                  cleanCode.includes('SABOTAGE') ||
                   cleanCode.includes('POINT_01')
                 ) {
                   setActiveMinigame(null);
                   setSelectedTask(null);
                   setShowBreakerGame(true);
+                  return;
+                }
+
+                // Sabotagem de Comunicações
+                if (cleanCode.includes('TASK_COMMS') || cleanCode.includes('COMMS')) {
+                  setActiveMinigame(null);
+                  setSelectedTask(null);
+                  setShowCommsGame(true);
+                  return;
+                }
+
+                // Sabotagem de Reator (Crítica)
+                if (cleanCode.includes('TASK_REACTOR') || cleanCode.includes('REACTOR')) {
+                  setActiveMinigame(null);
+                  setSelectedTask(null);
+                  setShowReactorGame(true);
+                  return;
+                }
+
+                // Sabotagem de Oxigênio (O2 - Crítica)
+                if (
+                  cleanCode.includes('TASK_O2') ||
+                  cleanCode.includes('CLEAN_O2') ||
+                  cleanCode.includes('OXYGEN') ||
+                  cleanCode.includes('O2')
+                ) {
+                  setActiveMinigame(null);
+                  setSelectedTask(null);
+                  setShowO2Game(true);
                   return;
                 }
 
@@ -2355,20 +2463,79 @@ export default function RoomPage({ params }: RoomPageProps) {
         />
       )}
 
-      {/* Minigame de Disjuntores (Breaker Minigame) */}
+      {/* Minigame de Disjuntores (Breaker Minigame - Luzes) */}
       {showBreakerGame && (
         <BreakerMinigame
-          onComplete={handleFixLightsSabotage}
+          onComplete={handleFixSabotage}
           onClose={() => setShowBreakerGame(false)}
         />
       )}
 
-      {/* Overlay de Escuridão Dinâmica com Lanterna (Apenas para Crewmates Vivos) */}
+      {/* Minigame de Comunicações (Comms Minigame) */}
+      {showCommsGame && (
+        <CommsMinigame
+          onComplete={handleFixSabotage}
+          onClose={() => setShowCommsGame(false)}
+        />
+      )}
+
+      {/* Minigame do Reator (Fusão Crítica) */}
+      {showReactorGame && (
+        <StartReactorMinigame
+          onComplete={handleFixSabotage}
+          onCancel={() => setShowReactorGame(false)}
+        />
+      )}
+
+      {/* Minigame de Oxigênio (O2 Crítica) */}
+      {showO2Game && (
+        <CleanO2FilterMinigame
+          onComplete={handleFixSabotage}
+          onCancel={() => setShowO2Game(false)}
+        />
+      )}
+
+      {/* Overlay de Escuridão Dinâmica com Lanterna (Apenas para Crewmates Vivos durante apagão) */}
       {isLightsSabotaged && playerRole !== 'IMPOSTOR' && playerStatus === 'ALIVE' && (
         <DarknessOverlay
-          onOpenGenerator={() => setShowBreakerGame(true)}
-          generatorLocationName="Gerador Principal (POINT_01)"
+          onOpenGenerator={() => setActiveMinigame('qr')}
+          generatorLocationName="Quadro de Luz (POINT_01)"
         />
+      )}
+
+      {/* Banner de Alerta para Sabotagens Críticas (Reator e O2) com Sirene e Contagem Regressiva */}
+      {(activeSabotageType === 'REACTOR' || activeSabotageType === 'O2') && sabotageSecondsLeft !== null && (
+        <div className="fixed top-3 inset-x-3 z-50 p-3.5 rounded-2xl bg-red-950/95 border-2 border-red-500 text-white shadow-[0_0_40px_rgba(239,68,68,0.6)] backdrop-blur-md animate-pulse flex items-center justify-between font-mono select-none">
+          <div className="flex items-center gap-2.5">
+            {activeSabotageType === 'REACTOR' ? (
+              <Atom className="w-7 h-7 text-red-400 animate-spin shrink-0" />
+            ) : (
+              <Wind className="w-7 h-7 text-cyan-400 animate-bounce shrink-0" />
+            )}
+            <div>
+              <span className="text-xs font-black uppercase text-red-200 block tracking-wider">
+                {activeSabotageType === 'REACTOR' ? '☢️ FUSÃO DO REATOR!' : '💨 FALHA DE OXIGÊNIO!'}
+              </span>
+              <span className="text-[10px] text-red-300">
+                {activeSabotageType === 'REACTOR'
+                  ? 'Estabilize o núcleo no Reator'
+                  : 'Limpe os filtros na Sala de O2'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl font-black text-amber-300 font-mono tracking-tight">
+              {sabotageSecondsLeft}s
+            </span>
+            <button
+              type="button"
+              onClick={() => setActiveMinigame('qr')}
+              className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[11px] font-black uppercase shadow-lg cursor-pointer active:scale-95 transition"
+            >
+              Escanear
+            </button>
+          </div>
+        </div>
       )}
 
 
@@ -2427,10 +2594,12 @@ export default function RoomPage({ params }: RoomPageProps) {
                   Vitória dos Tripulantes!
                 </h2>
                 <p className="text-xs text-slate-300">
-                  {victoryModal.impostorName.includes('tarefas') ? (
+                  {(victoryModal.impostorName || '').includes('tarefas') ? (
                     <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong>
-                  ) : (
+                  ) : victoryModal.impostorName ? (
                     <>O Impostor <strong className="text-emerald-400 font-black">{victoryModal.impostorName}</strong> foi ejetado da nave.</>
+                  ) : (
+                    <strong className="text-emerald-400 font-black">Todas as tarefas foram concluídas!</strong>
                   )}
                 </p>
               </div>
