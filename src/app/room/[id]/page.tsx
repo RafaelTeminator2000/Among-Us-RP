@@ -10,7 +10,7 @@ import { ReportBodyScanner } from '@/components/game/ReportBodyScanner';
 import { createClient } from '@/lib/supabase/client';
 import { generateUUID } from '@/lib/utils';
 import { getRoomSyncStateAction } from '@/app/room/actions';
-import { PlayerTaskList } from '@/components/tasks/PlayerTaskList';
+import { PlayerTaskList, MultiStepProgressInfo } from '@/components/tasks/PlayerTaskList';
 import { ImpostorKillButton } from '@/components/game/ImpostorKillButton';
 import { ImpostorActionDrawer, SabotageType } from '@/components/game/ImpostorActionDrawer';
 import { VotingSessionScreen } from '@/components/game/VotingSessionScreen';
@@ -26,7 +26,7 @@ import { AsteroidsMinigame } from '@/components/minigames/AsteroidsMinigame';
 import { EmptyGarbageMinigame } from '@/components/minigames/EmptyGarbageMinigame';
 import { CleanO2FilterMinigame } from '@/components/minigames/CleanO2FilterMinigame';
 import { AlignEngineMinigame } from '@/components/minigames/AlignEngineMinigame';
-import { RefuelEngineMinigame } from '@/components/minigames/RefuelEngineMinigame';
+import { RefuelEngineMinigame, RefuelStage } from '@/components/minigames/RefuelEngineMinigame';
 import { InspectSampleMinigame } from '@/components/minigames/InspectSampleMinigame';
 import { DivertPowerMinigame } from '@/components/minigames/DivertPowerMinigame';
 import { UploadDataMinigame } from '@/components/minigames/UploadDataMinigame';
@@ -418,6 +418,35 @@ export default function RoomPage({ params }: RoomPageProps) {
     | null
   >(null);
   const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
+
+  // Estados de rastreamento de tarefas multi-etapas (Persistente no localStorage contra F5)
+  const [multiStepProgress, setMultiStepProgress] = useState<MultiStepProgressInfo>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(`multistep_progress_${roomId}_${playerId}`);
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return { garbageParts: [], uploadParts: [], divertPowerP1Done: false, refuelStep: 0 };
+  });
+
+  const saveMultiStepProgress = useCallback(
+    (newProgress: MultiStepProgressInfo) => {
+      setMultiStepProgress(newProgress);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`multistep_progress_${roomId}_${playerId}`, JSON.stringify(newProgress));
+        } catch {}
+      }
+    },
+    [roomId, playerId]
+  );
+
+  const [refuelSingleStage, setRefuelSingleStage] = useState<RefuelStage | undefined>(undefined);
+  const [divertSingleStage, setDivertSingleStage] = useState<1 | 2 | undefined>(undefined);
+  const [uploadSingleStage, setUploadSingleStage] = useState<1 | 2 | undefined>(undefined);
+  const [currentGarbagePart, setCurrentGarbagePart] = useState<'P1' | 'P2' | null>(null);
+
   const [victoryModal, setVictoryModal] = useState<{
     winnerTeam?: 'CREWMATE' | 'IMPOSTOR';
     impostorName?: string;
@@ -2435,6 +2464,7 @@ export default function RoomPage({ params }: RoomPageProps) {
           roomId={roomId}
           playerId={playerId}
           isCommsSabotaged={isCommsSabotaged}
+          multiStepProgress={multiStepProgress}
         />
       </main>
 
@@ -2777,24 +2807,16 @@ export default function RoomPage({ params }: RoomPageProps) {
                   }
                 }
 
-                // Sabotagem de Comunicações
+                // Sabotagem / Conserto de Comunicações
                 if (
                   cleanCode.includes('TASK_COMMS') ||
                   cleanCode.includes('SABOTAGE_COMMS') ||
                   cleanCode.includes('COMMS')
                 ) {
-                  if (isCommsSabotaged) {
-                    setActiveMinigame(null);
-                    setSelectedTask(null);
-                    setShowCommsGame(true);
-                    return;
-                  } else {
-                    setActiveMinigame(null);
-                    setSelectedTask(null);
-                    setTaskFeedback('📡 As Comunicações e o rádio estão operando normalmente.');
-                    setTimeout(() => setTaskFeedback(null), 3000);
-                    return;
-                  }
+                  setActiveMinigame(null);
+                  setSelectedTask(null);
+                  setShowCommsGame(true);
+                  return;
                 }
 
                 // Sabotagem de Reator (Crítica)
@@ -2842,6 +2864,151 @@ export default function RoomPage({ params }: RoomPageProps) {
                   setSelectedTask(validation.targetNode);
                 }
 
+                // --- TAREFAS MULTI-ETAPAS ESPECÍFICAS ---
+                if (cleanCode.includes('TASK_GARBAGE_P1') || cleanCode === 'GARBAGE_P1') {
+                  const parts = multiStepProgress.garbageParts || [];
+                  if (parts.includes('P1')) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ Você já esvaziou a lixeira da Parte 1. Dirija-se até a Parte 2!');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                  setCurrentGarbagePart('P1');
+                  setActiveMinigame('garbage');
+                  return;
+                } else if (cleanCode.includes('TASK_GARBAGE_P2') || cleanCode === 'GARBAGE_P2') {
+                  const parts = multiStepProgress.garbageParts || [];
+                  if (parts.includes('P2')) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ Você já esvaziou a escotilha da Parte 2. Dirija-se até a Parte 1!');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                  setCurrentGarbagePart('P2');
+                  setActiveMinigame('garbage');
+                  return;
+                } else if (cleanCode.includes('TASK_REFUEL_P1') || cleanCode === 'REFUEL_P1') {
+                  const step = multiStepProgress.refuelStep || 0;
+                  if (step === 0) {
+                    setRefuelSingleStage('FILL_CANISTER_1');
+                    setActiveMinigame('refuel');
+                    return;
+                  } else if (step === 1) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ O galão já está cheio! Vá abastecer o Motor Superior (Parte 2).');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  } else if (step === 2) {
+                    setRefuelSingleStage('FILL_CANISTER_2');
+                    setActiveMinigame('refuel');
+                    return;
+                  } else if (step === 3) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ O galão já está cheio! Vá abastecer o Motor Inferior (Parte 3).');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  } else {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ Todos os motores já foram abastecidos!');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                } else if (cleanCode.includes('TASK_REFUEL_P2') || cleanCode === 'REFUEL_P2') {
+                  const step = multiStepProgress.refuelStep || 0;
+                  if (step === 0) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ Galão vazio! Vá primeiro até o Tanque de Combustível (Parte 1).');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  } else if (step === 1) {
+                    setRefuelSingleStage('POUR_UPPER_ENGINE');
+                    setActiveMinigame('refuel');
+                    return;
+                  } else {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ O Motor Superior já foi abastecido! Recarregue o galão no Tanque para o Motor Inferior.');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                } else if (cleanCode.includes('TASK_REFUEL_P3') || cleanCode === 'REFUEL_P3') {
+                  const step = multiStepProgress.refuelStep || 0;
+                  if (step < 3) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    if (step === 0 || step === 2) {
+                      setTaskFeedback('⚠️ Galão vazio! Vá até o Tanque de Combustível (Parte 1) recarregar o galão.');
+                    } else if (step === 1) {
+                      setTaskFeedback('⚠️ Abasteça o Motor Superior (Parte 2) antes do Motor Inferior.');
+                    }
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  } else if (step === 3) {
+                    setRefuelSingleStage('POUR_LOWER_ENGINE');
+                    setActiveMinigame('refuel');
+                    return;
+                  } else {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ O Motor Inferior já foi abastecido!');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                } else if (cleanCode.includes('TASK_DIVERT_POWER_P1') || cleanCode === 'DIVERT_POWER_P1') {
+                  if (multiStepProgress.divertPowerP1Done) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ Circuito principal já conectado! Dirija-se até a sala com o Disjuntor Alvo (Parte 2).');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                  setDivertSingleStage(1);
+                  setActiveMinigame('divert_power');
+                  return;
+                } else if (cleanCode.includes('TASK_DIVERT_POWER_P2') || cleanCode === 'DIVERT_POWER_P2') {
+                  if (!multiStepProgress.divertPowerP1Done) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ Circuito sem energia! Conecte o bypass no Painel Principal (Parte 1) primeiro.');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                  setDivertSingleStage(2);
+                  setActiveMinigame('divert_power');
+                  return;
+                } else if (cleanCode.includes('TASK_UPLOAD_DATA_P1') || cleanCode === 'UPLOAD_DATA_P1') {
+                  const parts = multiStepProgress.uploadParts || [];
+                  if (parts.includes('P1')) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ Download de dados já concluído! Vá até a Central de Controle para fazer o Upload (Parte 2).');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                  setUploadSingleStage(1);
+                  setActiveMinigame('upload_data');
+                  return;
+                } else if (cleanCode.includes('TASK_UPLOAD_DATA_P2') || cleanCode === 'UPLOAD_DATA_P2') {
+                  const parts = multiStepProgress.uploadParts || [];
+                  if (parts.includes('P2')) {
+                    setActiveMinigame(null);
+                    setSelectedTask(null);
+                    setTaskFeedback('⚠️ Upload de dados já concluído!');
+                    setTimeout(() => setTaskFeedback(null), 3500);
+                    return;
+                  }
+                  setUploadSingleStage(2);
+                  setActiveMinigame('upload_data');
+                  return;
+                }
+
+                // --- TAREFAS REGULARES ---
                 if (cleanCode.includes('TASK_WIRE') || cleanCode === 'WIRE') {
                   setActiveMinigame('wires');
                 } else if (cleanCode.includes('TASK_CARD_SWIPE') || cleanCode === 'CARD_SWIPE') {
@@ -2857,18 +3024,22 @@ export default function RoomPage({ params }: RoomPageProps) {
                 } else if (cleanCode.includes('TASK_ASTEROIDS') || cleanCode === 'ASTEROIDS') {
                   setActiveMinigame('asteroids');
                 } else if (cleanCode.includes('TASK_GARBAGE') || cleanCode === 'GARBAGE') {
+                  setCurrentGarbagePart(null);
                   setActiveMinigame('garbage');
                 } else if (cleanCode.includes('TASK_CLEAN_O2') || cleanCode === 'CLEAN_O2') {
                   setActiveMinigame('clean_o2');
                 } else if (cleanCode.includes('TASK_ALIGN_ENGINE') || cleanCode === 'ALIGN_ENGINE') {
                   setActiveMinigame('align_engine');
                 } else if (cleanCode.includes('TASK_REFUEL') || cleanCode === 'REFUEL') {
+                  setRefuelSingleStage(undefined);
                   setActiveMinigame('refuel');
                 } else if (cleanCode.includes('TASK_INSPECT_SAMPLE') || cleanCode === 'INSPECT_SAMPLE' || cleanCode.includes('SAMPLE')) {
                   setActiveMinigame('inspect_sample');
                 } else if (cleanCode.includes('TASK_DIVERT_POWER') || cleanCode === 'DIVERT_POWER' || cleanCode.includes('DIVERT')) {
+                  setDivertSingleStage(undefined);
                   setActiveMinigame('divert_power');
                 } else if (cleanCode.includes('TASK_UPLOAD_DATA') || cleanCode === 'UPLOAD_DATA' || cleanCode.includes('UPLOAD')) {
+                  setUploadSingleStage(undefined);
                   setActiveMinigame('upload_data');
                 } else if (validation.targetNode) {
                   const t = validation.targetNode.type;
@@ -2879,13 +3050,25 @@ export default function RoomPage({ params }: RoomPageProps) {
                   else if (t === 'KEYPAD') setActiveMinigame('keypad');
                   else if (t === 'REACTOR') setActiveMinigame('reactor');
                   else if (t === 'ASTEROIDS') setActiveMinigame('asteroids');
-                  else if (t === 'GARBAGE') setActiveMinigame('garbage');
+                  else if (t === 'GARBAGE') {
+                    setCurrentGarbagePart(null);
+                    setActiveMinigame('garbage');
+                  }
                   else if (t === 'CLEAN_O2') setActiveMinigame('clean_o2');
                   else if (t === 'ALIGN_ENGINE') setActiveMinigame('align_engine');
-                  else if (t === 'REFUEL') setActiveMinigame('refuel');
+                  else if (t === 'REFUEL') {
+                    setRefuelSingleStage(undefined);
+                    setActiveMinigame('refuel');
+                  }
                   else if (t === 'INSPECT_SAMPLE') setActiveMinigame('inspect_sample');
-                  else if (t === 'DIVERT_POWER') setActiveMinigame('divert_power');
-                  else if (t === 'UPLOAD_DATA') setActiveMinigame('upload_data');
+                  else if (t === 'DIVERT_POWER') {
+                    setDivertSingleStage(undefined);
+                    setActiveMinigame('divert_power');
+                  }
+                  else if (t === 'UPLOAD_DATA') {
+                    setUploadSingleStage(undefined);
+                    setActiveMinigame('upload_data');
+                  }
                   else {
                     handleCompleteTask(validation.targetNode.id);
                     setActiveMinigame(null);
@@ -3005,11 +3188,31 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'garbage' && (
         <EmptyGarbageMinigame
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'garbage-task', 'GARBAGE');
+            if (currentGarbagePart) {
+              const currentParts = multiStepProgress.garbageParts || [];
+              const updatedParts = Array.from(new Set([...currentParts, currentGarbagePart]));
+              if (updatedParts.length >= 2) {
+                saveMultiStepProgress({ ...multiStepProgress, garbageParts: updatedParts });
+                handleCompleteTask(selectedTask?.id || 'garbage-task', 'GARBAGE');
+                setTaskFeedback('🎉 Lixo 100% Esvaziado (2/2)! Tarefa concluída!');
+                setTimeout(() => setTaskFeedback(null), 4000);
+              } else {
+                saveMultiStepProgress({ ...multiStepProgress, garbageParts: updatedParts });
+                const otherPart = currentGarbagePart === 'P1' ? 'Parte 2' : 'Parte 1';
+                setTaskFeedback(`✅ Lixeira (${currentGarbagePart}/2) Esvaziada! Dirija-se até a ${otherPart} para finalizar.`);
+                setTimeout(() => setTaskFeedback(null), 4000);
+              }
+              setCurrentGarbagePart(null);
+            } else {
+              handleCompleteTask(selectedTask?.id || 'garbage-task', 'GARBAGE');
+            }
+            setActiveMinigame(null);
+            setSelectedTask(null);
           }}
           onCancel={() => {
             setActiveMinigame(null);
             setSelectedTask(null);
+            setCurrentGarbagePart(null);
           }}
         />
       )}
@@ -3043,12 +3246,38 @@ export default function RoomPage({ params }: RoomPageProps) {
       {/* Minigame: Abastecer Combustível */}
       {activeMinigame === 'refuel' && (
         <RefuelEngineMinigame
+          singleStage={refuelSingleStage}
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'refuel-task', 'REFUEL');
+            if (refuelSingleStage) {
+              if (refuelSingleStage === 'FILL_CANISTER_1') {
+                saveMultiStepProgress({ ...multiStepProgress, refuelStep: 1 });
+                setTaskFeedback('⛽ Galão de combustível cheio (1/4)! Dirija-se até o Motor Superior (Parte 2).');
+                setTimeout(() => setTaskFeedback(null), 4000);
+              } else if (refuelSingleStage === 'POUR_UPPER_ENGINE') {
+                saveMultiStepProgress({ ...multiStepProgress, refuelStep: 2 });
+                setTaskFeedback('🔥 Motor Superior abastecido (2/4)! Retorne ao Tanque (Parte 1) para recarregar o galão.');
+                setTimeout(() => setTaskFeedback(null), 4000);
+              } else if (refuelSingleStage === 'FILL_CANISTER_2') {
+                saveMultiStepProgress({ ...multiStepProgress, refuelStep: 3 });
+                setTaskFeedback('⛽ Galão recarregado (3/4)! Dirija-se até o Motor Inferior (Parte 3).');
+                setTimeout(() => setTaskFeedback(null), 4000);
+              } else if (refuelSingleStage === 'POUR_LOWER_ENGINE') {
+                saveMultiStepProgress({ ...multiStepProgress, refuelStep: 4 });
+                handleCompleteTask(selectedTask?.id || 'refuel-task', 'REFUEL');
+                setTaskFeedback('🎉 Motores 100% Abastecidos (4/4)! Tarefa concluída!');
+                setTimeout(() => setTaskFeedback(null), 4000);
+              }
+              setRefuelSingleStage(undefined);
+            } else {
+              handleCompleteTask(selectedTask?.id || 'refuel-task', 'REFUEL');
+            }
+            setActiveMinigame(null);
+            setSelectedTask(null);
           }}
           onCancel={() => {
             setActiveMinigame(null);
             setSelectedTask(null);
+            setRefuelSingleStage(undefined);
           }}
         />
       )}
@@ -3072,12 +3301,30 @@ export default function RoomPage({ params }: RoomPageProps) {
       {activeMinigame === 'divert_power' && (
         <DivertPowerMinigame
           rooms={mapData?.rooms}
+          singleStage={divertSingleStage}
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'divert-task', 'DIVERT_POWER');
+            if (divertSingleStage) {
+              if (divertSingleStage === 1) {
+                saveMultiStepProgress({ ...multiStepProgress, divertPowerP1Done: true });
+                setTaskFeedback('⚡ Circuito conectado (1/2)! Vá até o Disjuntor da sala alvo (Parte 2) para religar a energia.');
+                setTimeout(() => setTaskFeedback(null), 4000);
+              } else if (divertSingleStage === 2) {
+                saveMultiStepProgress({ ...multiStepProgress, divertPowerP1Done: true });
+                handleCompleteTask(selectedTask?.id || 'divert-task', 'DIVERT_POWER');
+                setTaskFeedback('🎉 Energia restaurada na sala alvo (2/2)! Tarefa concluída!');
+                setTimeout(() => setTaskFeedback(null), 4000);
+              }
+              setDivertSingleStage(undefined);
+            } else {
+              handleCompleteTask(selectedTask?.id || 'divert-task', 'DIVERT_POWER');
+            }
+            setActiveMinigame(null);
+            setSelectedTask(null);
           }}
           onCancel={() => {
             setActiveMinigame(null);
             setSelectedTask(null);
+            setDivertSingleStage(undefined);
           }}
         />
       )}
@@ -3088,12 +3335,34 @@ export default function RoomPage({ params }: RoomPageProps) {
           roomName={selectedTask?.room_name || 'Armas'}
           roomId={roomId}
           playerId={playerId}
+          singleStage={uploadSingleStage}
           onComplete={() => {
-            handleCompleteTask(selectedTask?.id || 'upload-task', 'UPLOAD_DATA');
+            if (uploadSingleStage) {
+              const currentUploadParts = multiStepProgress.uploadParts || [];
+              const partKey = uploadSingleStage === 1 ? 'P1' : 'P2';
+              const updatedUploadParts = Array.from(new Set([...currentUploadParts, partKey]));
+              if (updatedUploadParts.length >= 2) {
+                saveMultiStepProgress({ ...multiStepProgress, uploadParts: updatedUploadParts });
+                handleCompleteTask(selectedTask?.id || 'upload-task', 'UPLOAD_DATA');
+                setTaskFeedback('🎉 Transmissão de Dados Concluída (2/2)! Tarefa concluída!');
+                setTimeout(() => setTaskFeedback(null), 4000);
+              } else {
+                saveMultiStepProgress({ ...multiStepProgress, uploadParts: updatedUploadParts });
+                const nextPartDesc = uploadSingleStage === 1 ? 'fazer o Upload na Central (Parte 2)' : 'fazer o Download no Terminal (Parte 1)';
+                setTaskFeedback(`✅ Etapa ${uploadSingleStage}/2 concluída! Dirija-se até a outra sala para ${nextPartDesc}.`);
+                setTimeout(() => setTaskFeedback(null), 4000);
+              }
+              setUploadSingleStage(undefined);
+            } else {
+              handleCompleteTask(selectedTask?.id || 'upload-task', 'UPLOAD_DATA');
+            }
+            setActiveMinigame(null);
+            setSelectedTask(null);
           }}
           onCancel={() => {
             setActiveMinigame(null);
             setSelectedTask(null);
+            setUploadSingleStage(undefined);
           }}
         />
       )}
@@ -3127,7 +3396,15 @@ export default function RoomPage({ params }: RoomPageProps) {
       {/* Minigame de Comunicações (Comms Minigame) */}
       {showCommsGame && (
         <CommsMinigame
-          onComplete={() => handleFixSabotage('COMMS')}
+          onComplete={() => {
+            if (isCommsSabotaged) {
+              handleFixSabotage('COMMS');
+            } else {
+              setTaskFeedback('📡 Frequência de rádio calibrada e sintonizada com sucesso!');
+              setTimeout(() => setTaskFeedback(null), 3500);
+            }
+            setShowCommsGame(false);
+          }}
           onClose={() => setShowCommsGame(false)}
         />
       )}

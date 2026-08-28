@@ -7,6 +7,7 @@ interface DivertPowerMinigameProps {
   onComplete: () => void;
   onCancel: () => void;
   rooms?: Array<{ id: string; name: string }>;
+  singleStage?: 1 | 2;
 }
 
 // Tipos de conexões de cada peça da grade (N: Norte/Top, E: Leste/Right, S: Sul/Bottom, W: Oeste/Left)
@@ -286,8 +287,9 @@ export const DivertPowerMinigame: React.FC<DivertPowerMinigameProps> = ({
   onComplete,
   onCancel,
   rooms = DEFAULT_FALLBACK_ROOMS,
+  singleStage,
 }) => {
-  const [stage, setStage] = useState<1 | 2>(1); // Etapa 1: Hotwire; Etapa 2: Disjuntores
+  const [stage, setStage] = useState<1 | 2>(singleStage || 1); // Etapa 1: Hotwire; Etapa 2: Disjuntores
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
 
   // Salas ativas para o painel de disjuntores da Etapa 2
@@ -409,12 +411,19 @@ export const DivertPowerMinigame: React.FC<DivertPowerMinigameProps> = ({
         navigator.vibrate([40, 80, 40, 80, 150]);
       }
 
-      setTimeout(() => {
-        setStage(2);
-        isTransitioningRef.current = false;
-      }, 800);
+      if (singleStage === 1) {
+        setIsCompleted(true);
+        setTimeout(() => {
+          onComplete();
+        }, 800);
+      } else {
+        setTimeout(() => {
+          setStage(2);
+          isTransitioningRef.current = false;
+        }, 800);
+      }
     }
-  }, [stage, circuitState.reachesBypass, playSound]);
+  }, [stage, circuitState.reachesBypass, playSound, singleStage, onComplete]);
 
   // Manipulação de disjuntores (Etapa 2)
   const handleToggleBreaker = (index: number) => {

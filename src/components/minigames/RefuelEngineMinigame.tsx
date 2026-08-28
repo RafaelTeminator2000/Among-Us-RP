@@ -3,24 +3,26 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, CheckCircle2, Fuel } from 'lucide-react';
 
-interface RefuelEngineMinigameProps {
-  onComplete: () => void;
-  onCancel: () => void;
-}
-
-type RefuelStage =
+export type RefuelStage =
   | 'FILL_CANISTER_1' // 1: Encher o galão no Depósito
   | 'POUR_UPPER_ENGINE' // 2: Despejar no Motor Superior
   | 'FILL_CANISTER_2' // 3: Recarregar o galão no Depósito
   | 'POUR_LOWER_ENGINE'; // 4: Despejar no Motor Inferior
+
+interface RefuelEngineMinigameProps {
+  onComplete: () => void;
+  onCancel: () => void;
+  singleStage?: RefuelStage;
+}
 
 const STAGE_DURATION_MS = 3800; // 3.8 segundos exatos de bombeamento por etapa (oficial do Among Us)
 
 export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
   onComplete,
   onCancel,
+  singleStage,
 }) => {
-  const [stage, setStage] = useState<RefuelStage>('FILL_CANISTER_1');
+  const [stage, setStage] = useState<RefuelStage>(singleStage || 'FILL_CANISTER_1');
   const [level, setLevel] = useState<number>(0); // 0 a 100%
   const [isHolding, setIsHolding] = useState<boolean>(false);
   const [isStageDone, setIsStageDone] = useState<boolean>(false);
@@ -77,6 +79,13 @@ export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
   const advanceToNextStage = useCallback((currentStage: RefuelStage) => {
     if (isCompletedRef.current) return;
 
+    if (singleStage) {
+      isCompletedRef.current = true;
+      setIsCompleted(true);
+      setTimeout(() => onComplete(), 750);
+      return;
+    }
+
     if (currentStage === 'FILL_CANISTER_1') {
       setStage('POUR_UPPER_ENGINE');
       setLevel(0);
@@ -100,7 +109,7 @@ export const RefuelEngineMinigame: React.FC<RefuelEngineMinigameProps> = ({
       setIsCompleted(true);
       setTimeout(() => onComplete(), 750);
     }
-  }, [onComplete]);
+  }, [onComplete, singleStage]);
 
   // Loop contínuo de bombeamento (3.8 segundos por etapa)
   useEffect(() => {

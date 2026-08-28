@@ -4,6 +4,13 @@ import React, { useState, useEffect } from 'react';
 import { TaskNode } from '@/types/grid-editor';
 import { Check, Clock, Sparkles, Radio } from 'lucide-react';
 
+export interface MultiStepProgressInfo {
+  garbageParts?: string[];
+  uploadParts?: string[];
+  divertPowerP1Done?: boolean;
+  refuelStep?: number;
+}
+
 export interface PlayerTaskListProps {
   tasks: TaskNode[];
   completedTasks: string[];
@@ -11,6 +18,7 @@ export interface PlayerTaskListProps {
   roomId?: string;
   playerId?: string;
   isCommsSabotaged?: boolean;
+  multiStepProgress?: MultiStepProgressInfo;
 }
 
 // Mapeia o tipo da tarefa para o nome limpo exibido na lista informativa
@@ -87,6 +95,7 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
   roomId = 'default',
   playerId = 'p-self',
   isCommsSabotaged = false,
+  multiStepProgress,
 }) => {
   // Filtrar tarefas regulares para exibição na lista informativa
   const displayTasks = tasks.filter((t) => t.type !== 'EMERGENCY_BUTTON');
@@ -210,6 +219,23 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
           (task.type && (task.type.toUpperCase().includes('SAMPLE') || task.type.toUpperCase().includes('INSPECT'))) ||
           (task.id && (task.id.toUpperCase().includes('SAMPLE') || task.id.toUpperCase().includes('INSPECT'))) ||
           taskName === 'Enviar Amostra';
+        const isGarbage = task.type === 'GARBAGE' || taskName === 'Esvaziar Lixo';
+        const isUpload = task.type === 'UPLOAD_DATA' || taskName === 'Enviar Dados';
+        const isDivert = task.type === 'DIVERT_POWER' || taskName === 'Direcionar Energia';
+        const isRefuel = task.type === 'REFUEL' || taskName === 'Abastecer Motor';
+
+        let stepBadgeText = '';
+        if (!isCompleted && multiStepProgress) {
+          if (isGarbage && multiStepProgress.garbageParts && multiStepProgress.garbageParts.length > 0) {
+            stepBadgeText = `(${multiStepProgress.garbageParts.length}/2)`;
+          } else if (isUpload && multiStepProgress.uploadParts && multiStepProgress.uploadParts.length > 0) {
+            stepBadgeText = `(${multiStepProgress.uploadParts.length}/2)`;
+          } else if (isDivert && multiStepProgress.divertPowerP1Done) {
+            stepBadgeText = `(1/2)`;
+          } else if (isRefuel && multiStepProgress.refuelStep && multiStepProgress.refuelStep > 0) {
+            stepBadgeText = `(${multiStepProgress.refuelStep}/4)`;
+          }
+        }
 
         return (
           <div
@@ -227,13 +253,21 @@ export const PlayerTaskList: React.FC<PlayerTaskListProps> = ({
               )}
 
               {/* Nome da Tarefa */}
-              <span
-                className={`text-base font-bold tracking-wider truncate ${
-                  isCompleted ? 'line-through text-slate-500' : 'text-white'
-                }`}
-              >
-                {taskName}
-              </span>
+              <div className="flex items-center gap-2 truncate">
+                <span
+                  className={`text-base font-bold tracking-wider truncate ${
+                    isCompleted ? 'line-through text-slate-500' : 'text-white'
+                  }`}
+                >
+                  {taskName}
+                </span>
+
+                {stepBadgeText && (
+                  <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/70 border border-amber-500/40 px-2 py-0.5 rounded-full shrink-0">
+                    {stepBadgeText}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Status / Contador da Análise de Amostra */}

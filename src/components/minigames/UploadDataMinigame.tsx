@@ -9,6 +9,7 @@ interface UploadDataMinigameProps {
   roomName?: string;
   roomId?: string;
   playerId?: string;
+  singleStage?: 1 | 2;
 }
 
 const TRANSFER_DURATION_MS = 6000; // ~6 segundos de transferência fluida
@@ -30,11 +31,13 @@ export const UploadDataMinigame: React.FC<UploadDataMinigameProps> = ({
   roomName = 'Armas',
   roomId = 'default',
   playerId = 'self',
+  singleStage,
 }) => {
   // Chave de persistência de estágio para a mecânica de 2 etapas (Download -> Upload na Sede)
   const storageKey = `upload_stage_${roomId}_${playerId}`;
 
   const [stage, setStage] = useState<1 | 2>(() => {
+    if (singleStage) return singleStage;
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(storageKey);
       if (saved === '2') return 2;
@@ -141,7 +144,11 @@ export const UploadDataMinigame: React.FC<UploadDataMinigameProps> = ({
           navigator.vibrate([60, 50, 60, 50, 200]);
         }
 
-        if (stage === 1) {
+        if (singleStage) {
+          setTimeout(() => {
+            onComplete();
+          }, 1200);
+        } else if (stage === 1) {
           // Salvar conclusão da Etapa 1
           try {
             localStorage.setItem(storageKey, '2');

@@ -23,11 +23,9 @@ import {
   Radio,
   FlaskConical,
   UploadCloud,
-  Atom,
-  AlertTriangle,
+  Layers,
   LucideIcon,
   Loader2,
-  Filter,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -35,7 +33,7 @@ import Link from 'next/link';
 export interface QrCardDefinition {
   token: string;
   title: string;
-  category: 'REPORT' | 'EMERGENCY' | 'SABOTAGE' | 'TASK';
+  category: 'REPORT' | 'EMERGENCY' | 'SABOTAGE' | 'TASK' | 'MULTI_STEP';
   description: string;
   icon: LucideIcon;
   badge: string;
@@ -94,7 +92,81 @@ export const TACTICAL_CARDS: QrCardDefinition[] = [
     badge: 'CRÍTICA • OXIGÊNIO (45s)',
   },
 
-  // --- TAREFAS DOS TRIPULANTES (MINIGAMES) ---
+  // --- TAREFAS MULTI-ETAPAS (DESLOCAMENTO PRESENCIAL) ---
+  {
+    token: 'TASK_GARBAGE_P1',
+    title: 'ESVAZIAR LIXO (PARTE 1)',
+    category: 'MULTI_STEP',
+    description: 'Puxe e segure a alavanca do triturador para esvaziar a primeira lixeira.',
+    icon: Trash2,
+    badge: 'MULTI-ETAPAS • PARTE 1/2',
+  },
+  {
+    token: 'TASK_GARBAGE_P2',
+    title: 'ESVAZIAR LIXO (PARTE 2)',
+    category: 'MULTI_STEP',
+    description: 'Puxe e segure a alavanca da escotilha principal para ejetar os resíduos ao espaço.',
+    icon: Trash2,
+    badge: 'MULTI-ETAPAS • PARTE 2/2',
+  },
+  {
+    token: 'TASK_REFUEL_P1',
+    title: 'COMBUSTÍVEL: TANQUE / GALÃO',
+    category: 'MULTI_STEP',
+    description: 'Mantenha pressionado o botão de vazão do tanque para abastecer o galão de combustível.',
+    icon: Fuel,
+    badge: 'MULTI-ETAPAS • TANQUE (P1)',
+  },
+  {
+    token: 'TASK_REFUEL_P2',
+    title: 'COMBUSTÍVEL: MOTOR SUPERIOR',
+    category: 'MULTI_STEP',
+    description: 'Despeje o combustível do galão no bocal de entrada do Motor Superior.',
+    icon: Fuel,
+    badge: 'MULTI-ETAPAS • MOTOR 1 (P2)',
+  },
+  {
+    token: 'TASK_REFUEL_P3',
+    title: 'COMBUSTÍVEL: MOTOR INFERIOR',
+    category: 'MULTI_STEP',
+    description: 'Despeje o combustível do galão no bocal de entrada do Motor Inferior.',
+    icon: Fuel,
+    badge: 'MULTI-ETAPAS • MOTOR 2 (P3)',
+  },
+  {
+    token: 'TASK_DIVERT_POWER_P1',
+    title: 'DIRECIONAR ENERGIA: PAINEL PRINCIPAL',
+    category: 'MULTI_STEP',
+    description: 'Conecte os circuitos de energia no painel central para liberar o bypass.',
+    icon: Zap,
+    badge: 'MULTI-ETAPAS • PARTE 1/2',
+  },
+  {
+    token: 'TASK_DIVERT_POWER_P2',
+    title: 'DIRECIONAR ENERGIA: DISJUNTOR ALVO',
+    category: 'MULTI_STEP',
+    description: 'Ative o disjuntor da sala alvo para receber e ligar a energia redirecionada.',
+    icon: Zap,
+    badge: 'MULTI-ETAPAS • PARTE 2/2',
+  },
+  {
+    token: 'TASK_UPLOAD_DATA_P1',
+    title: 'TRANSMISSÃO DE DADOS: DOWNLOAD',
+    category: 'MULTI_STEP',
+    description: 'Baixe os arquivos de telemetria do terminal para o dispositivo portátil.',
+    icon: UploadCloud,
+    badge: 'MULTI-ETAPAS • PARTE 1/2',
+  },
+  {
+    token: 'TASK_UPLOAD_DATA_P2',
+    title: 'TRANSMISSÃO DE DADOS: UPLOAD',
+    category: 'MULTI_STEP',
+    description: 'Transmita os pacotes de dados descarregados para o servidor central da nave.',
+    icon: UploadCloud,
+    badge: 'MULTI-ETAPAS • PARTE 2/2',
+  },
+
+  // --- TAREFAS DOS TRIPULANTES (MINIGAMES ETAPA ÚNICA) ---
   {
     token: 'TASK_WIRE',
     title: 'REPARAR FIAÇÃO ELÉTRICA',
@@ -145,7 +217,7 @@ export const TACTICAL_CARDS: QrCardDefinition[] = [
   },
   {
     token: 'TASK_GARBAGE',
-    title: 'ESVAZIAR LIXO DA NAVE',
+    title: 'ESVAZIAR LIXO (ÚNICO)',
     category: 'TASK',
     description: 'Puxe e segure a alavanca do triturador para esvaziar os resíduos.',
     icon: Trash2,
@@ -161,7 +233,7 @@ export const TACTICAL_CARDS: QrCardDefinition[] = [
   },
   {
     token: 'TASK_REFUEL',
-    title: 'ABASTECER MOTOR COM COMBUSTÍVEL',
+    title: 'ABASTECER MOTOR (COMPLETO)',
     category: 'TASK',
     description: 'Mantenha pressionado o botão de vazão até encher o galão do motor.',
     icon: Fuel,
@@ -177,7 +249,7 @@ export const TACTICAL_CARDS: QrCardDefinition[] = [
   },
   {
     token: 'TASK_DIVERT_POWER',
-    title: 'DIRECIONAR ENERGIA DA NAVE',
+    title: 'DIRECIONAR ENERGIA (COMPLETO)',
     category: 'TASK',
     description: 'Conecte o circuito de energia e ative o disjuntor da sala alvo.',
     icon: Zap,
@@ -185,7 +257,7 @@ export const TACTICAL_CARDS: QrCardDefinition[] = [
   },
   {
     token: 'TASK_UPLOAD_DATA',
-    title: 'ENVIAR DADOS / TELEMETRIA',
+    title: 'ENVIAR DADOS (COMPLETO)',
     category: 'TASK',
     description: 'Transmita os pacotes de dados da estação para a Central da nave.',
     icon: UploadCloud,
@@ -198,7 +270,7 @@ function QrPrintContent() {
   const paramRoomId = searchParams.get('roomId');
   const paramCode = searchParams.get('code');
 
-  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'SABOTAGE' | 'EMERGENCY_REPORT' | 'TASK'>('ALL');
+  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'MULTI_STEP' | 'SABOTAGE' | 'EMERGENCY_REPORT' | 'TASK'>('ALL');
 
   const [returnUrl, setReturnUrl] = useState<string>(() => {
     const roomId = paramRoomId || (typeof window !== 'undefined' ? localStorage.getItem('host_current_room_id') : null);
@@ -231,15 +303,17 @@ function QrPrintContent() {
 
   const filteredCards = TACTICAL_CARDS.filter((card) => {
     if (selectedFilter === 'ALL') return true;
+    if (selectedFilter === 'MULTI_STEP') return card.category === 'MULTI_STEP';
     if (selectedFilter === 'SABOTAGE') return card.category === 'SABOTAGE';
     if (selectedFilter === 'EMERGENCY_REPORT') return card.category === 'REPORT' || card.category === 'EMERGENCY';
-    if (selectedFilter === 'TASK') return card.category === 'TASK';
+    if (selectedFilter === 'TASK') return card.category === 'TASK' || card.category === 'MULTI_STEP';
     return true;
   });
 
+  const multiStepCount = TACTICAL_CARDS.filter((c) => c.category === 'MULTI_STEP').length;
   const sabotageCount = TACTICAL_CARDS.filter((c) => c.category === 'SABOTAGE').length;
   const emergencyCount = TACTICAL_CARDS.filter((c) => c.category === 'REPORT' || c.category === 'EMERGENCY').length;
-  const taskCount = TACTICAL_CARDS.filter((c) => c.category === 'TASK').length;
+  const taskCount = TACTICAL_CARDS.filter((c) => c.category === 'TASK' || c.category === 'MULTI_STEP').length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 antialiased font-sans">
@@ -257,7 +331,7 @@ function QrPrintContent() {
             <span>Kit de QR Codes Táticos Presenciais ({TACTICAL_CARDS.length} Cartões)</span>
           </h1>
           <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Imprima o kit completo contendo todas as 4 Sabotagens (Luzes, Rádio, Reator e O2), Botão de Emergência, Report de Corpo e Minigames.
+            Imprima o kit completo com Tarefas Multi-Etapas, Sabotagens (Luzes, Rádio, Reator e O2), Botão de Emergência, Report de Corpo e Minigames.
           </p>
         </div>
 
@@ -285,6 +359,19 @@ function QrPrintContent() {
           >
             <span>Todos</span>
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-950/40">{TACTICAL_CARDS.length}</span>
+          </button>
+
+          <button
+            onClick={() => setSelectedFilter('MULTI_STEP')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition-all cursor-pointer flex items-center gap-2 ${
+              selectedFilter === 'MULTI_STEP'
+                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30 font-black'
+                : 'bg-slate-900 text-amber-300 border border-amber-900/40 hover:text-white'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Multi-Etapas (9)</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-950/40">{multiStepCount}</span>
           </button>
 
           <button
@@ -322,7 +409,7 @@ function QrPrintContent() {
             }`}
           >
             <Wrench className="w-3.5 h-3.5" />
-            <span>Tarefas / Minigames</span>
+            <span>Todas as Tarefas</span>
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-950/40">{taskCount}</span>
           </button>
         </div>
@@ -336,7 +423,7 @@ function QrPrintContent() {
       <div className="max-w-5xl mx-auto mb-6 p-4 bg-cyan-950/40 border border-cyan-500/30 rounded-2xl text-xs text-cyan-300 flex items-center gap-3 print:hidden">
         <Sparkles className="w-5 h-5 text-amber-400 shrink-0" />
         <span>
-          <strong>Dica Presencial:</strong> Cole os QR Codes das <strong>Sabotagens</strong> nas salas correspondentes (Quadro de Luz, Sala de Rádio, Sala do Reator e Sala de Oxigênio). Quando o Impostor sabotar, os tripulantes devem correr presencialmente até o QR Code para consertar!
+          <strong>Dica Multi-Etapas:</strong> Cole os QR Codes das etapas em salas diferentes da casa ou do espaço físico. Os tripulantes precisarão andar entre as salas (ex: Tanque $\rightarrow$ Motores) para completar suas missões!
         </span>
       </div>
 
@@ -347,6 +434,7 @@ function QrPrintContent() {
           const isReport = card.category === 'REPORT';
           const isEmergency = card.category === 'EMERGENCY';
           const isSabotage = card.category === 'SABOTAGE';
+          const isMultiStep = card.category === 'MULTI_STEP';
           const isCriticalSabotage = card.token === 'TASK_REACTOR' || card.token === 'TASK_CLEAN_O2';
 
           return (
@@ -361,6 +449,8 @@ function QrPrintContent() {
                   ? isCriticalSabotage
                     ? 'border-red-600/80 bg-red-950/50 shadow-red-500/10'
                     : 'border-purple-500/60 bg-purple-950/40'
+                  : isMultiStep
+                  ? 'border-amber-500/60 bg-amber-950/20'
                   : 'border-slate-700 bg-slate-900/60 border-dashed'
               }`}
             >
@@ -376,6 +466,8 @@ function QrPrintContent() {
                       ? isCriticalSabotage
                         ? 'text-red-400 font-black'
                         : 'text-purple-400 font-bold'
+                      : isMultiStep
+                      ? 'text-amber-400 font-black'
                       : 'text-cyan-400'
                   }`}
                 >
@@ -409,6 +501,8 @@ function QrPrintContent() {
                       ? isCriticalSabotage
                         ? 'bg-red-950 text-red-300 border-red-700'
                         : 'bg-purple-950 text-purple-300 border-purple-800'
+                      : isMultiStep
+                      ? 'bg-amber-950 text-amber-300 border-amber-800 font-black'
                       : 'bg-slate-950 text-cyan-300 border-slate-800'
                   }`}
                 >
