@@ -1103,6 +1103,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     const lobbyPayload = { status: 'LOBBY', timestamp: Date.now() };
     await broadcastEvent('RETURN_TO_LOBBY', lobbyPayload);
     await broadcastEvent('return_to_lobby', lobbyPayload);
+    await broadcastEvent('ROOM_STATUS_CHANGED', lobbyPayload);
 
     // 2. Atualizar status da sala e dos jogadores no Supabase se for UUID válido
     if (isValidUuid(roomId)) {

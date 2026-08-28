@@ -367,6 +367,18 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
     return () => stopAll();
   }, [gameState, activeSabotageType, audioEnabled, playSiren, playEmergencyBuzzer, stopAll]);
 
+  // Auto-retorno da TV ao Lobby após finalização da partida (10s para visualização do sumário)
+  useEffect(() => {
+    if (gameState !== 'ENDED' && gameState !== 'FINISHED') return;
+
+    const timer = setTimeout(() => {
+      setWinnerTeam(null);
+      setGameState('LOBBY');
+    }, 10000);
+
+    return () => clearTimeout(timer);
+  }, [gameState]);
+
   // Se a sala tiver sido encerrada pelo Host
   if (isRoomClosed) {
     return (

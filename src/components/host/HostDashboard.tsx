@@ -27,6 +27,8 @@ import {
   RotateCcw,
   LogOut,
   Trash2,
+  Trophy,
+  Skull,
 } from "lucide-react";
 import { startGameAction, updateRoomStatusAction } from "@/app/room/actions";
 
@@ -119,7 +121,13 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [showQrModal, setShowQrModal] = useState<boolean>(false);
   const [showCloseRoomModal, setShowCloseRoomModal] = useState<boolean>(false);
+  const [matchEndModal, setMatchEndModal] = useState<{
+    winnerTeam: 'CREWMATE' | 'IMPOSTOR';
+    reason?: string;
+    countdown: number;
+  } | null>(null);
 
   const channelRef = useRef<any>(null);
 
@@ -566,6 +574,11 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           `🏆 VITÓRIA DOS TRIPULANTES! Todas as tarefas concluídas.`,
           ...prev.slice(0, 8),
         ]);
+        setMatchEndModal({
+          winnerTeam: 'CREWMATE',
+          reason: payload?.reason || 'Todas as tarefas da nave foram concluídas!',
+          countdown: 7,
+        });
       })
       .on("broadcast", { event: "crewmate_victory" }, ({ payload }) => {
         setStatusMessage("🎉 Vitória dos Tripulantes! Todas as tarefas foram concluídas (100%).");
@@ -573,20 +586,35 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           `🏆 VITÓRIA DOS TRIPULANTES! Todas as tarefas concluídas.`,
           ...prev.slice(0, 8),
         ]);
+        setMatchEndModal({
+          winnerTeam: 'CREWMATE',
+          reason: payload?.reason || 'Todas as tarefas da nave foram concluídas!',
+          countdown: 7,
+        });
       })
       .on("broadcast", { event: "IMPOSTOR_VICTORY" }, ({ payload }) => {
         setStatusMessage("🔪 Vitória dos Impostores! Os impostores dominaram a tripulação.");
         setActionLogs((prev) => [
-          `🔪 VITÓRIA DOS IMPOSTORES! Tripulação eliminada.`,
+          `🔪 VITÓRIA DOS IMPOSTORES! Tripulação eliminada ou sabotagem crítica.`,
           ...prev.slice(0, 8),
         ]);
+        setMatchEndModal({
+          winnerTeam: 'IMPOSTOR',
+          reason: payload?.reason || 'Os Impostores dominaram a nave ou a sabotagem crítica não foi resolvida!',
+          countdown: 7,
+        });
       })
       .on("broadcast", { event: "impostor_victory" }, ({ payload }) => {
         setStatusMessage("🔪 Vitória dos Impostores! Os impostores dominaram a tripulação.");
         setActionLogs((prev) => [
-          `🔪 VITÓRIA DOS IMPOSTORES! Tripulação eliminada.`,
+          `🔪 VITÓRIA DOS IMPOSTORES! Tripulação eliminada ou sabotagem crítica.`,
           ...prev.slice(0, 8),
         ]);
+        setMatchEndModal({
+          winnerTeam: 'IMPOSTOR',
+          reason: payload?.reason || 'Os Impostores dominaram a nave ou a sabotagem crítica não foi resolvida!',
+          countdown: 7,
+        });
       })
       .on("broadcast", { event: "RETURN_TO_LOBBY" }, () => {
         setIsGameRunning(false);
@@ -792,6 +820,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
 
   // Retornar ao Lobby (Nova Rodada) disparando broadcasts e atualizando DB
   const handleReturnToLobby = async () => {
+    setMatchEndModal(null);
     const targetKey = roomCode || roomId;
     if (typeof window !== "undefined") {
       localStorage.setItem(`host_room_status_${roomId}`, "LOBBY");
@@ -839,8 +868,24 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
         completed_tasks: 0,
       }))
     );
-    setActionLogs((prev) => ["Partida retornada ao lobby pelo host.", ...prev.slice(0, 8)]);
+    setStatusMessage("Partida encerrada. Retornado ao Lobby para nova partida.");
+    setActionLogs((prev) => ["Partida retornada ao lobby para nova rodada.", ...prev.slice(0, 8)]);
   };
+
+  // Temporizador para auto-retorno ao Lobby após vitória
+  useEffect(() => {
+    if (!matchEndModal) return;
+
+    if (matchEndModal.countdown > 0) {
+      const timer = setTimeout(() => {
+        setMatchEndModal((prev) => (prev && prev.countdown > 0 ? { ...prev, countdown: prev.countdown - 1 } : null));
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (matchEndModal.countdown === 0) {
+      setMatchEndModal(null);
+      handleReturnToLobby();
+    }
+  }, [matchEndModal]);
 
   // Formatação de Tempo MM:SS
   const formatTime = (secs: number) => {
@@ -1550,6 +1595,69 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
                 Cancelar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Fim de Partida no Console do Host com Auto-Retorno ao Lobby */}
+      {matchEndModal && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-50 p-4 flex items-center justify-center animate-in fade-in select-none">
+          <div className={`w-full max-w-sm border-2 rounded-3xl p-6 shadow-2xl space-y-4 text-center ${
+            matchEndModal.winnerTeam === 'IMPOSTOR'
+              ? 'bg-slate-950 border-red-600 shadow-[0_0_50px_rgba(220,38,38,0.4)]'
+              : 'bg-slate-950 border-emerald-500 shadow-[0_0_50px_rgba(16,185,129,0.4)]'
+          }`}>
+            <div className={`w-16 h-16 rounded-2xl border-2 flex items-center justify-center mx-auto animate-bounce ${
+              matchEndModal.winnerTeam === 'IMPOSTOR'
+                ? 'bg-red-950/80 border-red-500 text-red-500'
+                : 'bg-emerald-950/80 border-emerald-500 text-emerald-400'
+            }`}>
+              {matchEndModal.winnerTeam === 'IMPOSTOR' ? (
+                <Skull className="w-8 h-8" />
+              ) : (
+                <Trophy className="w-8 h-8" />
+              )}
+            </div>
+
+            <div>
+              <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border inline-block mb-1.5 ${
+                matchEndModal.winnerTeam === 'IMPOSTOR'
+                  ? 'bg-red-950 text-red-400 border-red-800'
+                  : 'bg-emerald-950 text-emerald-400 border-emerald-800'
+              }`}>
+                Partida Finalizada
+              </span>
+              <h3 className={`text-2xl font-black uppercase tracking-wider ${
+                matchEndModal.winnerTeam === 'IMPOSTOR' ? 'text-red-500' : 'text-emerald-400'
+              }`}>
+                {matchEndModal.winnerTeam === 'IMPOSTOR' ? 'Vitória dos Impostores! 🔪' : 'Vitória dos Tripulantes! 🏆'}
+              </h3>
+              <p className="text-xs text-slate-300 mt-1 font-mono">
+                {matchEndModal.reason}
+              </p>
+            </div>
+
+            <div className="p-3 bg-slate-900/90 rounded-2xl border border-slate-800 flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-400">Retornando ao Lobby em:</span>
+              <span className={`font-black text-base ${
+                matchEndModal.winnerTeam === 'IMPOSTOR' ? 'text-red-400' : 'text-emerald-400'
+              }`}>
+                {matchEndModal.countdown}s
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleReturnToLobby}
+              className={`w-full py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                matchEndModal.winnerTeam === 'IMPOSTOR'
+                  ? 'bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 shadow-red-950/60'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 shadow-emerald-950/60'
+              }`}
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Voltar ao Lobby Agora</span>
+            </button>
           </div>
         </div>
       )}
