@@ -106,6 +106,17 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [votingTimeSeconds, setVotingTimeSeconds] = useState<number>(35);
   const [allPlayers, setAllPlayers] = useState<PlayerGameState[]>([]);
   const [roomUuid, setRoomUuid] = useState<string>(roomId);
+  const [roomCode, setRoomCode] = useState<string>(() => {
+    if (!isValidUuid(roomId)) return roomId.toUpperCase();
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const c = urlParams.get('code');
+      if (c) return c.toUpperCase();
+      const saved = localStorage.getItem(`room_code_${roomId}`);
+      if (saved) return saved;
+    }
+    return '';
+  });
   const [mapData, setMapData] = useState<ScratchMapPlan | null>(null);
   const [taskCount, setTaskCount] = useState<number>(4);
   const [gameStartTime, setGameStartTime] = useState<number>(() => {
@@ -310,6 +321,13 @@ export default function RoomPage({ params }: RoomPageProps) {
       }
 
       if (room.id) setRoomUuid(room.id);
+      if (room.code) {
+        setRoomCode(room.code.toUpperCase());
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`room_code_${roomId}`, room.code.toUpperCase());
+          if (room.id) localStorage.setItem(`room_code_${room.id}`, room.code.toUpperCase());
+        }
+      }
       if (room.map_data) setMapData(room.map_data as unknown as ScratchMapPlan);
       if (room.rules) {
         const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
@@ -450,8 +468,8 @@ export default function RoomPage({ params }: RoomPageProps) {
 
   // Conexão e sincronização em tempo real via canal privado (WebSocket)
   const { connectionState, triggerSabotage, fixSabotage, broadcastEvent } = useRealtimeGame({
-    roomId,
-    roomCode: !isValidUuid(roomId) ? roomId.toUpperCase() : undefined,
+    roomId: roomUuid || roomId,
+    roomCode: roomCode || (!isValidUuid(roomId) ? roomId.toUpperCase() : undefined),
     playerId,
     playerName,
     playerColor,
@@ -636,7 +654,19 @@ export default function RoomPage({ params }: RoomPageProps) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem(`player_role_${roomId}`);
           localStorage.removeItem(`completed_tasks_${roomId}`);
+          if (roomCode) {
+            localStorage.removeItem(`player_role_${roomCode}`);
+            localStorage.removeItem(`completed_tasks_${roomCode}`);
+            localStorage.setItem(`room_status_${roomCode}`, 'LOBBY');
+          }
+          if (roomUuid) {
+            localStorage.removeItem(`player_role_${roomUuid}`);
+            localStorage.removeItem(`completed_tasks_${roomUuid}`);
+            localStorage.setItem(`room_status_${roomUuid}`, 'LOBBY');
+          }
+          localStorage.setItem(`room_status_${roomId}`, 'LOBBY');
         }
+        setPlayerRole(null);
         setPlayerStatus('ALIVE');
         setCompletedTasks([]);
         setIsLightsSabotaged(false);
@@ -649,6 +679,7 @@ export default function RoomPage({ params }: RoomPageProps) {
         setAllPlayers((prev) =>
           prev.map((p) => ({
             ...p,
+            role: 'CREWMATE',
             is_alive: true,
             completed_tasks: 0,
             has_voted: false,

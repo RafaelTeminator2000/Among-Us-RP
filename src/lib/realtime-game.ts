@@ -305,6 +305,34 @@ export function useRealtimeGame({
           if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
           if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data?.status || 'PLAYING');
         })
+        .on('broadcast', { event: 'GAME_RESTARTED' }, (payload) => {
+          const data = payload?.payload as GameStartedPayload;
+          if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data?.status || 'PLAYING');
+        })
+        .on('broadcast', { event: 'game_restarted' }, (payload) => {
+          const data = payload?.payload as GameStartedPayload;
+          if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data?.status || 'PLAYING');
+        })
+        .on('broadcast', { event: 'RETURN_TO_LOBBY' }, () => {
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');
+        })
+        .on('broadcast', { event: 'return_to_lobby' }, () => {
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');
+        })
+        .on('broadcast', { event: 'ROOM_STATUS_CHANGED' }, (payload) => {
+          const newStatus = payload?.payload?.status || payload?.payload;
+          if (typeof newStatus === 'string' && callbacksRef.current.onRoomStatusChanged) {
+            callbacksRef.current.onRoomStatusChanged(newStatus);
+          }
+        })
+        .on('broadcast', { event: 'room_status_changed' }, (payload) => {
+          const newStatus = payload?.payload?.status || payload?.payload;
+          if (typeof newStatus === 'string' && callbacksRef.current.onRoomStatusChanged) {
+            callbacksRef.current.onRoomStatusChanged(newStatus);
+          }
+        })
         .on('broadcast', { event: 'PLAYER_KILLED' }, (payload) => {
           const data = payload.payload as PlayerKilledPayload;
           if (callbacksRef.current.onPlayerKilled) callbacksRef.current.onPlayerKilled(data);

@@ -398,15 +398,55 @@ export async function startGameAction(payload: {
 /**
  * Server Action: Atualizar Status da Sala
  */
-export async function updateRoomStatusAction(roomId: string, status: string) {
+export async function updateRoomStatusAction(roomIdOrCode: string, status: string) {
   try {
     const supabase = await createClient();
     const isValidUuid = (str?: string) =>
       typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
-    if (isValidUuid(roomId)) {
-      await supabase.from('rooms').update({ status: status as any }).eq('id', roomId);
+    let targetRoomId: string | null = null;
+    const cleanKey = (roomIdOrCode || '').trim();
+
+    if (isValidUuid(cleanKey)) {
+      targetRoomId = cleanKey;
+    } else if (cleanKey) {
+      const { data: roomData } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('code', cleanKey.toUpperCase())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (roomData) targetRoomId = roomData.id;
     }
+
+    if (targetRoomId) {
+      const updateData: Record<string, any> = {
+        status: status as any,
+      };
+
+      if (status === 'LOBBY') {
+        updateData.is_lights_sabotaged = false;
+        updateData.is_reactor_sabotaged = false;
+        updateData.is_o2_sabotaged = false;
+
+        // Resetar status dos jogadores para ALIVE e tarefas zeradas para nova rodada
+        await supabase
+          .from('room_players')
+          .update({
+            status: 'ALIVE',
+            completed_tasks: [] as any,
+          })
+          .eq('room_id', targetRoomId);
+      }
+
+      await supabase
+        .from('rooms')
+        .update(updateData as any)
+        .eq('id', targetRoomId);
+    }
+
     return { success: true };
   } catch (err: any) {
     console.error('[updateRoomStatusAction] Erro:', err?.message || err);

@@ -790,6 +790,58 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
     }
   };
 
+  // Retornar ao Lobby (Nova Rodada) disparando broadcasts e atualizando DB
+  const handleReturnToLobby = async () => {
+    const targetKey = roomCode || roomId;
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`host_room_status_${roomId}`, "LOBBY");
+      if (roomCode) localStorage.setItem(`host_room_status_${roomCode}`, "LOBBY");
+      localStorage.removeItem(`host_room_started_at_${roomId}`);
+      localStorage.removeItem(`host_room_started_at_${roomCode}`);
+    }
+
+    // 1. Atualizar DB no Supabase
+    await updateRoomStatusAction(targetKey, "LOBBY").catch((err) => {
+      console.warn("[handleReturnToLobby] Erro ao atualizar DB:", err);
+    });
+
+    // 2. Disparar broadcasts no canal para todos os players e Telão TV (< 50ms)
+    if (channelRef.current) {
+      await channelRef.current.send({
+        type: "broadcast",
+        event: "RETURN_TO_LOBBY",
+        payload: { status: "LOBBY", timestamp: Date.now() },
+      }).catch(() => {});
+
+      await channelRef.current.send({
+        type: "broadcast",
+        event: "return_to_lobby",
+        payload: { status: "LOBBY", timestamp: Date.now() },
+      }).catch(() => {});
+
+      await channelRef.current.send({
+        type: "broadcast",
+        event: "ROOM_STATUS_CHANGED",
+        payload: { status: "LOBBY", timestamp: Date.now() },
+      }).catch(() => {});
+    }
+
+    // 3. Resetar estados locais do host
+    setElapsedSeconds(0);
+    setIsGameRunning(false);
+    setActiveTab("LOBBY");
+    setGlobalTaskProgress(0);
+    setPlayers((prev) =>
+      prev.map((p) => ({
+        ...p,
+        role: "CREWMATE",
+        status: "ALIVE",
+        completed_tasks: 0,
+      }))
+    );
+    setActionLogs((prev) => ["Partida retornada ao lobby pelo host.", ...prev.slice(0, 8)]);
+  };
+
   // Formatação de Tempo MM:SS
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -1449,19 +1501,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
           <div className="flex flex-col gap-2">
             <button
               type="button"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  localStorage.setItem(`host_room_status_${roomId}`, "LOBBY");
-                  if (roomCode) localStorage.setItem(`host_room_status_${roomCode}`, "LOBBY");
-                  localStorage.removeItem(`host_room_started_at_${roomId}`);
-                  localStorage.removeItem(`host_room_started_at_${roomCode}`);
-                }
-                updateRoomStatusAction(roomId, "LOBBY").catch(() => {});
-                setElapsedSeconds(0);
-                setIsGameRunning(false);
-                setActiveTab("LOBBY");
-                setActionLogs((prev) => ["Partida retornada ao lobby pelo host.", ...prev]);
-              }}
+              onClick={handleReturnToLobby}
               className="w-full h-[46px] rounded-2xl btn-3d-slate flex items-center justify-center gap-2 text-xs font-black uppercase cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />

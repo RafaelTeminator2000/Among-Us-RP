@@ -28,10 +28,11 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
   const { initAudio, playSiren, playEmergencyBuzzer, stopAll } = useGameAudio();
   const supabase = createClient();
 
+  const isValidUuid = (str?: string) =>
+    typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
   // Carregar estado inicial da sala e jogadores no Supabase
   useEffect(() => {
-    const isValidUuid = (str?: string) =>
-      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
     const fetchInitialTVData = async () => {
       let targetUuid = roomId;
@@ -149,6 +150,7 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
   // Hook de Sincronização em Tempo Real (WebSocket Supabase)
   const { connectionState } = useRealtimeGame({
     roomId,
+    roomCode: displayCode || (!isValidUuid(roomId) ? roomId.toUpperCase() : undefined),
     playerName: 'Telão Central (TV)',
     playerRole: null,
     isAlive: true,
