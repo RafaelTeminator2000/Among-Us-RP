@@ -9,6 +9,7 @@ import { ReportBodyScanner } from '@/components/game/ReportBodyScanner';
 
 import { createClient } from '@/lib/supabase/client';
 import { generateUUID } from '@/lib/utils';
+import { getRoomSyncStateAction } from '@/app/room/actions';
 import { PlayerTaskList } from '@/components/tasks/PlayerTaskList';
 import { ImpostorKillButton } from '@/components/game/ImpostorKillButton';
 import { VotingSessionScreen } from '@/components/game/VotingSessionScreen';
@@ -277,13 +278,102 @@ export default function RoomPage({ params }: RoomPageProps) {
     setAllPlayers(demoPlayers);
   };
 
+  // Sincronização abrangente do estado da sala e do jogador via Server Action
+  const syncRoomState = useCallback(async () => {
+    let currentPid = playerId;
+    if (!currentPid && typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      currentPid =
+        urlParams.get('playerId') ||
+        localStorage.getItem(`room_player_${roomId}`) ||
+        localStorage.getItem('current_player_id') ||
+        '';
+    }
+
+    const res = await getRoomSyncStateAction({
+      roomId,
+      playerId: currentPid,
+    });
+
+    if (res.success && res.room) {
+      const { room, player, allPlayers: fetchedPlayers } = res;
+
+      if (room.status) {
+        setRoomStatus((prev) => {
+          if (prev !== room.status) return room.status as RoomStatus;
+          return prev;
+        });
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`room_status_${roomId}`, room.status);
+          if (room.code) localStorage.setItem(`room_status_${room.code}`, room.status);
+        }
+      }
+
+      if (room.id) setRoomUuid(room.id);
+      if (room.map_data) setMapData(room.map_data as unknown as ScratchMapPlan);
+      if (room.rules) {
+        const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
+        if (tc) setTaskCount(Number(tc));
+        if (room.rules.discussion_time || room.rules.discussionTime) {
+          setDiscussionTimeSeconds(Number(room.rules.discussion_time || room.rules.discussionTime));
+        }
+        if (room.rules.voting_time || room.rules.votingTime) {
+          setVotingTimeSeconds(Number(room.rules.voting_time || room.rules.votingTime));
+        }
+      }
+
+      if (room.is_lights_sabotaged) {
+        setIsLightsSabotaged(true);
+        setIsSabotaged(true);
+      }
+
+      if (player) {
+        if (player.player_name) setPlayerName(player.player_name);
+        if (player.color_hex) setPlayerColor(player.color_hex);
+        if (player.role) {
+          setPlayerRole(player.role as any);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(`player_role_${roomId}`, player.role);
+            if (room.id) localStorage.setItem(`player_role_${room.id}`, player.role);
+          }
+        }
+        if (player.status) setPlayerStatus(player.status as any);
+        if (Array.isArray(player.completed_tasks)) {
+          setCompletedTasks(player.completed_tasks as string[]);
+        }
+      }
+
+      if (fetchedPlayers && fetchedPlayers.length > 0) {
+        const formatted: PlayerGameState[] = fetchedPlayers.map((p) => ({
+          id: p.id,
+          nickname: p.player_name,
+          color: p.color_hex || '#3b82f6',
+          role: (p.role as any) || 'CREWMATE',
+          is_alive: p.status === 'ALIVE',
+          is_host: false,
+          completed_tasks: Array.isArray(p.completed_tasks) ? p.completed_tasks.length : 0,
+          total_tasks: taskCount,
+          has_voted: false,
+          voted_for_id: null,
+        }));
+        setAllPlayers(formatted);
+      }
+    }
+  }, [roomId, playerId, taskCount]);
+
   // 1. Carregar dados iniciais da sala e do jogador na sessão atual
   useEffect(() => {
     const initSession = async () => {
-      // Recuperar o ID, Nome e Cor do jogador salvos no localStorage durante o Guest Join
-      let storedPlayerId =
-        localStorage.getItem(`room_player_${roomId}`) ||
-        localStorage.getItem('current_player_id');
+      // Recuperar o ID, Nome e Cor do jogador salvos no localStorage ou URL durante o Guest Join
+      let storedPlayerId = '';
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        storedPlayerId =
+          urlParams.get('playerId') ||
+          localStorage.getItem(`room_player_${roomId}`) ||
+          localStorage.getItem('current_player_id') ||
+          '';
+      }
 
       const storedPlayerName =
         localStorage.getItem(`player_name_${roomId}`) ||
@@ -295,6 +385,9 @@ export default function RoomPage({ params }: RoomPageProps) {
 
       if (!storedPlayerId) {
         storedPlayerId = generateUUID();
+        localStorage.setItem(`room_player_${roomId}`, storedPlayerId);
+        localStorage.setItem('current_player_id', storedPlayerId);
+      } else if (typeof window !== 'undefined') {
         localStorage.setItem(`room_player_${roomId}`, storedPlayerId);
         localStorage.setItem('current_player_id', storedPlayerId);
       }
@@ -322,130 +415,38 @@ export default function RoomPage({ params }: RoomPageProps) {
         setMapData(DEFAULT_DEMO_MAP);
       }
 
-      // Resolver UUID da sala caso roomId seja um código (ex: "8MKC") ou UUID
-      let targetRoomUuid = roomId;
-      if (!isValidUuid(roomId)) {
-        const { data: roomByCode } = await supabase
-          .from('rooms')
-          .select('*')
-          .eq('code', roomId.toUpperCase())
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (roomByCode) {
-          targetRoomUuid = roomByCode.id;
-          if (roomByCode.status) {
-            setRoomStatus(roomByCode.status as any);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(`room_status_${roomId}`, roomByCode.status);
-              localStorage.setItem(`room_status_${targetRoomUuid}`, roomByCode.status);
-            }
-          }
-          if (roomByCode.map_data) setMapData(roomByCode.map_data as unknown as ScratchMapPlan);
-          if (roomByCode.rules) {
-            const tc = (roomByCode.rules as any).task_count || (roomByCode.rules as any).taskCount;
-            if (tc) setTaskCount(Number(tc));
-          }
-          if ((roomByCode as any).is_lights_sabotaged) {
-            setIsLightsSabotaged(true);
-            setIsSabotaged(true);
-          }
-        }
-      } else {
-        // Buscar dados da sala se roomId for um UUID direto
-        const { data: room } = await supabase
-          .from('rooms')
-          .select('*')
-          .eq('id', roomId)
-          .maybeSingle();
-
-        if (room) {
-          if (room.status) {
-            setRoomStatus(room.status as any);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(`room_status_${roomId}`, room.status);
-              if (room.code) localStorage.setItem(`room_status_${room.code}`, room.status);
-            }
-          }
-          if (room.map_data) setMapData(room.map_data as unknown as ScratchMapPlan);
-          if (room.rules) {
-            const tc = (room.rules as any).task_count || (room.rules as any).taskCount;
-            if (tc) setTaskCount(Number(tc));
-          }
-          if ((room as any).is_lights_sabotaged) {
-            setIsLightsSabotaged(true);
-            setIsSabotaged(true);
-          }
-        }
-      }
-
-      setRoomUuid(targetRoomUuid);
-
-      if (storedPlayerId && isValidUuid(storedPlayerId)) {
-        const { data: player } = await supabase
-          .from('room_players')
-          .select('id, player_name, color_hex, role, status, completed_tasks')
-          .eq('id', storedPlayerId)
-          .maybeSingle();
-
-        if (player) {
-          if (player.player_name) setPlayerName(player.player_name);
-          if (player.color_hex) setPlayerColor(player.color_hex);
-          if (player.role) {
-            setPlayerRole(player.role as any);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(`player_role_${roomId}`, player.role);
-              if (targetRoomUuid) localStorage.setItem(`player_role_${targetRoomUuid}`, player.role);
-            }
-          }
-          if (player.status) setPlayerStatus(player.status as any);
-          if (Array.isArray(player.completed_tasks)) {
-            setCompletedTasks(player.completed_tasks as string[]);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(`completed_tasks_${roomId}`, JSON.stringify(player.completed_tasks));
-            }
-          }
-        } else if (isValidUuid(targetRoomUuid)) {
-          // Garantir cadastro do jogador na tabela room_players caso a sessão local exista
-          await supabase.from('room_players').upsert({
-            id: storedPlayerId,
-            room_id: targetRoomUuid,
-            player_name: storedPlayerName || 'Tripulante',
-            color_hex: storedPlayerColor || '#ef4444',
-            status: 'ALIVE',
-            completed_tasks: [],
-          });
-        }
-      }
-
-      // Buscar lista completa de jogadores da sala para HUD / EliminationScreen
-      if (isValidUuid(targetRoomUuid)) {
-        const { data: playersData } = await supabase
-          .from('room_players')
-          .select('id, player_name, color_hex, role, status, completed_tasks')
-          .eq('room_id', targetRoomUuid);
-
-        if (playersData && playersData.length > 0) {
-          const formattedPlayers: PlayerGameState[] = playersData.map((p) => ({
-            id: p.id,
-            nickname: p.player_name,
-            color: p.color_hex || '#3b82f6',
-            role: p.role as any,
-            is_alive: p.status === 'ALIVE',
-            is_host: false,
-            completed_tasks: Array.isArray(p.completed_tasks) ? p.completed_tasks.length : 0,
-            total_tasks: taskCount,
-            has_voted: false,
-            voted_for_id: null,
-          }));
-          setAllPlayers(formattedPlayers);
-        }
-      }
+      await syncRoomState();
     };
 
     initSession();
-  }, [roomId, supabase]);
+  }, [roomId, syncRoomState]);
+
+  // 2. Ouvintes de ciclo de vida (Standby, Foco e Polling no Lobby)
+  useEffect(() => {
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        syncRoomState();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    // No Lobby de espera, faz checagem periódica a cada 3s para garantir que jogadores
+    // que perderam o broadcast ou estavam com celular bloqueado entrem na partida imediatamente
+    let lobbyInterval: NodeJS.Timeout | null = null;
+    if (roomStatus === 'LOBBY') {
+      lobbyInterval = setInterval(() => {
+        syncRoomState();
+      }, 3000);
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      if (lobbyInterval) clearInterval(lobbyInterval);
+    };
+  }, [roomStatus, syncRoomState]);
 
   // Conexão e sincronização em tempo real via canal privado (WebSocket)
   const { connectionState, triggerSabotage, fixSabotage, broadcastEvent } = useRealtimeGame({
@@ -456,6 +457,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     playerColor,
     playerRole,
     isAlive: playerStatus === 'ALIVE',
+    onChannelSubscribed: syncRoomState,
     onGameStarted: (payload) => {
       initAudio();
       setRoomStatus('PLAYING');
@@ -621,6 +623,7 @@ export default function RoomPage({ params }: RoomPageProps) {
     },
     onRoomStatusChanged: (newStatus) => {
       setRoomStatus(newStatus as any);
+      syncRoomState();
       if (typeof window !== 'undefined') {
         localStorage.setItem(`room_status_${roomId}`, newStatus);
       }

@@ -137,6 +137,7 @@ export async function joinRoomAction(
   const supabase = await createClient();
   let targetRoomId: string | null = null;
   let targetRoomCode: string = code;
+  let targetPlayerId: string = '';
 
   try {
     // 1. Garantir que o convidado tenha sessão anônima para satisfazer RLS do Supabase
@@ -167,24 +168,25 @@ export async function joinRoomAction(
       if (room.code) targetRoomCode = room.code;
     }
 
-    // 3. Escolher cor aleatória e gerar ID
+    // 3. Escolher cor aleatória e definir ID do jogador
     const randomColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
-    const playerId = crypto.randomUUID();
-
-    // 4. Cadastrar jogador na sala (se targetRoomId for UUID válido)
+    const rawPlayerId = formData.get('playerId') as string | null;
     const isValidUuid = (str?: string) =>
       typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    const playerId = rawPlayerId && isValidUuid(rawPlayerId) ? rawPlayerId : crypto.randomUUID();
+    targetPlayerId = playerId;
 
+    // 4. Cadastrar ou atualizar jogador na sala (se targetRoomId for UUID válido)
     if (isValidUuid(targetRoomId)) {
       const previousPlayerId = formData.get('previousPlayerId') as string | null;
-      if (previousPlayerId && isValidUuid(previousPlayerId)) {
+      if (previousPlayerId && isValidUuid(previousPlayerId) && previousPlayerId !== playerId) {
         await supabase.from('room_players').delete().eq('id', previousPlayerId);
       }
       if (playerName) {
         await supabase.from('room_players').delete().eq('player_name', playerName).neq('room_id', targetRoomId!);
       }
 
-      const { error: playerError } = await supabase.from('room_players').insert({
+      const { error: playerError } = await supabase.from('room_players').upsert({
         id: playerId,
         room_id: targetRoomId!,
         player_name: playerName,
@@ -203,10 +205,109 @@ export async function joinRoomAction(
   }
 
   if (targetRoomId) {
-    redirect(`/room/${targetRoomId}?code=${targetRoomCode}`);
+    redirect(`/room/${targetRoomId}?code=${targetRoomCode}&playerId=${targetPlayerId}`);
   }
 
   return {};
+}
+
+/**
+ * Server Action: Sincronizar Estado Completo da Sala e Jogador
+ * Essencial para recuperar estado quando o celular acorda do modo standby,
+ * ao dar refresh na página ou na reconexão do WebSocket.
+ */
+export async function getRoomSyncStateAction(payload: {
+  roomId: string;
+  playerId?: string;
+}) {
+  try {
+    const supabase = await createClient();
+    const isValidUuid = (str?: string) =>
+      typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+    let room: any = null;
+    const cleanId = (payload.roomId || '').trim();
+
+    if (isValidUuid(cleanId)) {
+      const { data } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('id', cleanId)
+        .maybeSingle();
+      room = data;
+    } else {
+      const { data } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('code', cleanId.toUpperCase())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      room = data;
+    }
+
+    if (!room) {
+      return { error: 'Sala não encontrada' };
+    }
+
+    const resolvedRoomId = room.id;
+
+    // Buscar dados do jogador
+    let player: any = null;
+    if (payload.playerId && isValidUuid(payload.playerId)) {
+      const { data: playerData } = await supabase
+        .from('room_players')
+        .select('id, player_name, color_hex, role, status, completed_tasks')
+        .eq('id', payload.playerId)
+        .maybeSingle();
+      player = playerData;
+    }
+
+    // Se o jogo já começou ('PLAYING' ou 'EMERGENCY_MEETING') e o jogador não tem role no banco,
+    // atribuir 'CREWMATE' por padrão para que ele possa jogar imediatamente sem travar
+    if (
+      (room.status === 'PLAYING' || room.status === 'EMERGENCY_MEETING') &&
+      player &&
+      !player.role
+    ) {
+      player.role = 'CREWMATE';
+      if (isValidUuid(player.id)) {
+        await supabase
+          .from('room_players')
+          .update({ role: 'CREWMATE' })
+          .eq('id', player.id);
+      }
+    }
+
+    // Buscar todos os jogadores registrados na sala
+    let allPlayers: any[] = [];
+    if (resolvedRoomId && isValidUuid(resolvedRoomId)) {
+      const { data: playersList } = await supabase
+        .from('room_players')
+        .select('id, player_name, color_hex, role, status, completed_tasks')
+        .eq('room_id', resolvedRoomId);
+      allPlayers = playersList || [];
+    }
+
+    return {
+      success: true,
+      room: {
+        id: room.id,
+        code: room.code,
+        status: room.status || 'LOBBY',
+        rules: room.rules,
+        map_data: room.map_data,
+        is_lights_sabotaged: (room as any).is_lights_sabotaged || false,
+        is_reactor_sabotaged: (room as any).is_reactor_sabotaged || false,
+        is_o2_sabotaged: (room as any).is_o2_sabotaged || false,
+      },
+      player,
+      allPlayers,
+    };
+  } catch (err: any) {
+    console.error('[getRoomSyncStateAction] Erro ao sincronizar estado da sala:', err?.message || err);
+    return { error: err?.message || 'Erro ao sincronizar dados da sala' };
+  }
 }
 
 /**

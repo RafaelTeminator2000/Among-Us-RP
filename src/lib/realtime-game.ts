@@ -77,8 +77,8 @@ export interface UseRealtimeGameProps {
   onPlayersPresenceChanged?: (players: PresencePlayer[]) => void;
   onPlayerKicked?: (payload: { playerId: string; kickedId?: string }) => void;
   onRoomClosed?: (payload: { reason?: string }) => void;
+  onChannelSubscribed?: () => void;
 }
-
 
 export function useRealtimeGame({
   roomId,
@@ -103,6 +103,7 @@ export function useRealtimeGame({
   onPlayersPresenceChanged,
   onPlayerKicked,
   onRoomClosed,
+  onChannelSubscribed,
 }: UseRealtimeGameProps) {
   const [connectionState, setConnectionState] = useState<RealtimeConnectionState>('CONNECTING');
   const [presencePlayers, setPresencePlayers] = useState<PresencePlayer[]>([]);
@@ -127,6 +128,7 @@ export function useRealtimeGame({
     onPlayersPresenceChanged,
     onPlayerKicked,
     onRoomClosed,
+    onChannelSubscribed,
   });
 
   const playerRef = useRef({ playerId, playerName, playerColor, playerRole, isAlive });
@@ -148,6 +150,7 @@ export function useRealtimeGame({
       onPlayersPresenceChanged,
       onPlayerKicked,
       onRoomClosed,
+      onChannelSubscribed,
     };
     playerRef.current = { playerId, playerName, playerColor, playerRole, isAlive };
   }, [
@@ -166,6 +169,7 @@ export function useRealtimeGame({
     onPlayersPresenceChanged,
     onPlayerKicked,
     onRoomClosed,
+    onChannelSubscribed,
     playerId,
     playerName,
     playerColor,
@@ -195,7 +199,6 @@ export function useRealtimeGame({
       }).catch(() => {});
     }
   }, [playerId, playerName, playerColor, isAlive, connectionState]);
-
 
   // Função genérica de envio de broadcast com validação de canal
   const broadcastEvent = useCallback(
@@ -279,89 +282,65 @@ export function useRealtimeGame({
         channelRef.current = null;
       }
 
-      // Tentar atualizar token de auth RLS
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (sessionData?.session?.access_token) {
-          await supabase.realtime.setAuth(sessionData.session.access_token);
-        }
-      } catch (err) {
-        console.warn('[RealtimeGame] Aviso ao definir token RLS:', err);
-      }
-
       if (!isMounted) return;
 
-      // Criar canal único
       const channel = supabase.channel(channelTopic, {
         config: {
-          broadcast: { self: false },
-          presence: {
-            key: playerRef.current.playerId || `anon_${Date.now()}`,
-          },
+          broadcast: { self: true },
+          presence: { key: playerRef.current.playerId || `guest_${Date.now()}` },
         },
       });
 
       channelRef.current = channel;
 
-      // Listeners de Broadcast
+      // Inscrição dos Listeners de Broadcast
       channel
         .on('broadcast', { event: 'GAME_STARTED' }, (payload) => {
-          const data = payload.payload as GameStartedPayload;
+          const data = payload?.payload as GameStartedPayload;
           if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
-          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data.status || 'PLAYING');
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data?.status || 'PLAYING');
         })
         .on('broadcast', { event: 'game_started' }, (payload) => {
-          const data = payload.payload as GameStartedPayload;
+          const data = payload?.payload as GameStartedPayload;
           if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
-          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data.status || 'PLAYING');
+          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data?.status || 'PLAYING');
         })
-        .on('broadcast', { event: 'GAME_RESTARTED' }, (payload) => {
-          const data = payload.payload as GameStartedPayload;
-          if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
-          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data.status || 'PLAYING');
-        })
-        .on('broadcast', { event: 'game_restarted' }, (payload) => {
-          const data = payload.payload as GameStartedPayload;
-          if (callbacksRef.current.onGameStarted) callbacksRef.current.onGameStarted(data);
-          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged(data.status || 'PLAYING');
-        })
-        .on('broadcast', { event: 'CREWMATE_VICTORY' }, (payload) => {
-          if (callbacksRef.current.onCrewmateVictory) callbacksRef.current.onCrewmateVictory(payload.payload);
-        })
-        .on('broadcast', { event: 'crewmate_victory' }, (payload) => {
-          if (callbacksRef.current.onCrewmateVictory) callbacksRef.current.onCrewmateVictory(payload.payload);
-        })
-        .on('broadcast', { event: 'IMPOSTOR_VICTORY' }, (payload) => {
-          if (callbacksRef.current.onImpostorVictory) callbacksRef.current.onImpostorVictory(payload.payload);
-        })
-        .on('broadcast', { event: 'impostor_victory' }, (payload) => {
-          if (callbacksRef.current.onImpostorVictory) callbacksRef.current.onImpostorVictory(payload.payload);
-        })
-        .on('broadcast', { event: 'RETURN_TO_LOBBY' }, () => {
-          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');
-        })
-        .on('broadcast', { event: 'return_to_lobby' }, () => {
-          if (callbacksRef.current.onRoomStatusChanged) callbacksRef.current.onRoomStatusChanged('LOBBY');
+        .on('broadcast', { event: 'PLAYER_KILLED' }, (payload) => {
+          const data = payload.payload as PlayerKilledPayload;
+          if (callbacksRef.current.onPlayerKilled) callbacksRef.current.onPlayerKilled(data);
+          if (playerRef.current.playerId === data.victimId) {
+            playerRef.current.isAlive = false;
+          }
         })
         .on('broadcast', { event: 'player_killed' }, (payload) => {
           const data = payload.payload as PlayerKilledPayload;
           if (callbacksRef.current.onPlayerKilled) callbacksRef.current.onPlayerKilled(data);
-        })
-
-        .on('broadcast', { event: 'emergency_meeting' }, (payload) => {
-          const data = payload.payload as EmergencyMeetingPayload;
-          if (callbacksRef.current.onEmergencyMeeting) callbacksRef.current.onEmergencyMeeting(data);
+          if (playerRef.current.playerId === data.victimId) {
+            playerRef.current.isAlive = false;
+          }
         })
         .on('broadcast', { event: 'EMERGENCY_MEETING' }, (payload) => {
           const data = payload.payload as EmergencyMeetingPayload;
           if (callbacksRef.current.onEmergencyMeeting) callbacksRef.current.onEmergencyMeeting(data);
         })
+        .on('broadcast', { event: 'emergency_meeting' }, (payload) => {
+          const data = payload.payload as EmergencyMeetingPayload;
+          if (callbacksRef.current.onEmergencyMeeting) callbacksRef.current.onEmergencyMeeting(data);
+        })
+        .on('broadcast', { event: 'SABOTAGE_TRIGGERED' }, (payload) => {
+          const data = payload.payload as SabotageTriggeredPayload;
+          if (callbacksRef.current.onSabotageTriggered) callbacksRef.current.onSabotageTriggered(data);
+        })
         .on('broadcast', { event: 'sabotage_triggered' }, (payload) => {
           const data = payload.payload as SabotageTriggeredPayload;
           if (callbacksRef.current.onSabotageTriggered) callbacksRef.current.onSabotageTriggered(data);
         })
+        .on('broadcast', { event: 'SABOTAGE_FIXED' }, (payload) => {
+          const data = payload?.payload as SabotageFixedPayload;
+          if (callbacksRef.current.onSabotageFixed) callbacksRef.current.onSabotageFixed(data);
+        })
         .on('broadcast', { event: 'sabotage_fixed' }, (payload) => {
-          const data = payload.payload as SabotageFixedPayload;
+          const data = payload?.payload as SabotageFixedPayload;
           if (callbacksRef.current.onSabotageFixed) callbacksRef.current.onSabotageFixed(data);
         })
         .on('broadcast', { event: 'TASK_COMPLETED' }, (payload) => {
@@ -389,6 +368,18 @@ export function useRealtimeGame({
         })
         .on('broadcast', { event: 'player_kicked' }, (payload) => {
           if (callbacksRef.current.onPlayerKicked) callbacksRef.current.onPlayerKicked(payload.payload);
+        })
+        .on('broadcast', { event: 'CREWMATE_VICTORY' }, (payload) => {
+          if (callbacksRef.current.onCrewmateVictory) callbacksRef.current.onCrewmateVictory(payload.payload);
+        })
+        .on('broadcast', { event: 'crewmate_victory' }, (payload) => {
+          if (callbacksRef.current.onCrewmateVictory) callbacksRef.current.onCrewmateVictory(payload.payload);
+        })
+        .on('broadcast', { event: 'IMPOSTOR_VICTORY' }, (payload) => {
+          if (callbacksRef.current.onImpostorVictory) callbacksRef.current.onImpostorVictory(payload.payload);
+        })
+        .on('broadcast', { event: 'impostor_victory' }, (payload) => {
+          if (callbacksRef.current.onImpostorVictory) callbacksRef.current.onImpostorVictory(payload.payload);
         })
         .on('broadcast', { event: 'ROOM_CLOSED' }, (payload) => {
           if (callbacksRef.current.onRoomClosed) callbacksRef.current.onRoomClosed(payload.payload || {});
@@ -496,6 +487,10 @@ export function useRealtimeGame({
               payload: presencePayload,
             }).catch(() => {});
           }
+
+          if (callbacksRef.current.onChannelSubscribed) {
+            callbacksRef.current.onChannelSubscribed();
+          }
         } else if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
           setConnectionState('ERROR');
           if (err) console.warn('[RealtimeGame] Erro na conexão com o canal:', err);
@@ -516,7 +511,7 @@ export function useRealtimeGame({
         channelRef.current = null;
       }
     };
-  }, [roomId, supabase]);
+  }, [roomId, roomCode, supabase]);
 
   return {
     connectionState,

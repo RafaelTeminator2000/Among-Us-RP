@@ -78,24 +78,25 @@ export default function Home() {
 
     const formData = new FormData();
     const previousPlayerId = typeof window !== 'undefined' ? localStorage.getItem('current_player_id') : null;
+    const guestId = typeof window !== 'undefined' && previousPlayerId ? previousPlayerId : generateUUID();
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('current_player_id', guestId);
+      localStorage.setItem('current_player_name', guestName.trim());
+      localStorage.setItem('current_player_color', selectedColor);
+      localStorage.setItem(`player_name_${roomCode}`, guestName.trim());
+      localStorage.setItem(`player_color_${roomCode}`, selectedColor);
+      localStorage.setItem(`room_player_${roomCode}`, guestId);
+    }
 
     formData.append('playerName', guestName.trim());
     formData.append('code', roomCode);
-    if (previousPlayerId) {
+    formData.append('playerId', guestId);
+    if (previousPlayerId && previousPlayerId !== guestId) {
       formData.append('previousPlayerId', previousPlayerId);
     }
 
     startTransition(async () => {
-      if (typeof window !== 'undefined') {
-        const guestId = generateUUID();
-        localStorage.setItem('current_player_id', guestId);
-        localStorage.setItem('current_player_name', guestName.trim());
-        localStorage.setItem('current_player_color', selectedColor);
-        localStorage.setItem(`player_name_${roomCode}`, guestName.trim());
-        localStorage.setItem(`player_color_${roomCode}`, selectedColor);
-        localStorage.setItem(`room_player_${roomCode}`, guestId);
-      }
-
       const res = await joinRoomAction(null, formData);
       if (res?.error) {
         setErrorMessage(res.error);
