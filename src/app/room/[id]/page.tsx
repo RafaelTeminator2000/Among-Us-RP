@@ -185,13 +185,13 @@ export default function RoomPage({ params }: RoomPageProps) {
     reason?: string;
   } | null>(null);
 
-  // Lista de tarefas atribuídas exclusivamente para este jogador (Baralho Balanceado da Sala com Variedade Máxima de Tipos)
+  // Lista de tarefas atribuídas exclusivamente para este jogador (Variedade Máxima de Tipos e Dispersão por Salas)
   const assignedTasks = useMemo(() => {
     const nodes = mapData?.nodes && mapData.nodes.length > 0 ? mapData.nodes : DEFAULT_DEMO_MAP.nodes;
-    const playerIds = allPlayers.length > 0 ? allPlayers.map((p) => p.id) : [playerId || 'self'];
-    const matchSeed = `${roomUuid || roomId}_${gameStartTime || 0}`;
-    return getAssignedTasks(nodes, taskCount, matchSeed, playerIds, playerId || playerName || 'self');
-  }, [mapData, taskCount, roomUuid, roomId, gameStartTime, playerId, playerName, allPlayers]);
+    const playerSeed = playerId || playerName || 'player';
+    const matchSeed = `${roomUuid || roomId}_${gameStartTime || 0}_${playerSeed}`;
+    return getAssignedTasks(nodes, taskCount, matchSeed);
+  }, [mapData, taskCount, roomUuid, roomId, gameStartTime, playerId, playerName]);
   const [roleRevealToast, setRoleRevealToast] = useState<{
     role: 'CREWMATE' | 'IMPOSTOR';
   } | null>(null);
