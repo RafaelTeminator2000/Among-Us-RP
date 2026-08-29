@@ -8,14 +8,16 @@ import { createClient } from '@/lib/supabase/server';
 const PLAYER_COLORS = [
   '#ef4444', // Vermelho
   '#3b82f6', // Azul
-  '#22c55e', // Verde
+  '#10b981', // Verde
+  '#ec4899', // Rosa
+  '#f97316', // Laranja
   '#eab308', // Amarelo
   '#a855f7', // Roxo
-  '#f97316', // Laranja
-  '#ec4899', // Rosa
   '#06b6d4', // Ciano
   '#84cc16', // Lima
-  '#64748b', // Cinza
+  '#fb7185', // Coral
+  '#475569', // Grafite
+  '#f8fafc', // Branco
 ];
 
 // Função auxiliar para gerar um código aleatório de 4 caracteres (fallback no Node)
@@ -178,6 +180,16 @@ export async function joinRoomAction(
 
     // 4. Cadastrar ou atualizar jogador na sala (se targetRoomId for UUID válido)
     if (isValidUuid(targetRoomId)) {
+      // Checar se a sala atingiu a capacidade máxima de 30 jogadores
+      const { count } = await supabase
+        .from('room_players')
+        .select('id', { count: 'exact', head: true })
+        .eq('room_id', targetRoomId!);
+
+      if (count !== null && count >= 30) {
+        return { error: 'A sala atingiu o limite máximo de 30 jogadores.' };
+      }
+
       const previousPlayerId = formData.get('previousPlayerId') as string | null;
       if (previousPlayerId && isValidUuid(previousPlayerId) && previousPlayerId !== playerId) {
         await supabase.from('room_players').delete().eq('id', previousPlayerId);

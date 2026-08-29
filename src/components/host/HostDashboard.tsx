@@ -805,6 +805,12 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
       const payload = {
         status: "PLAYING",
         roles: rolesMap,
+        players: players.map((p) => ({
+          id: p.id,
+          player_name: p.player_name,
+          color_hex: p.color_hex,
+          role: rolesMap[p.id] || "CREWMATE",
+        })),
         rules: rulesPayload,
         timestamp: Date.now(),
       };
@@ -1122,7 +1128,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
                 </span>
                 <button
                   type="button"
-                  onClick={() => setImpostorCount((prev) => Math.min(3, prev + 1))}
+                  onClick={() => setImpostorCount((prev) => Math.min(5, prev + 1))}
                   className="w-11 h-11 rounded-xl bg-slate-900 border border-slate-700 text-lg font-bold text-slate-200 hover:border-cyan-400 active:scale-95 flex items-center justify-center cursor-pointer"
                 >
                   +
@@ -1458,23 +1464,25 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
                 </button>
 
                 <div className="px-3 py-2 rounded-xl bg-cyan-950 border border-cyan-800 text-xs font-mono font-black text-cyan-300">
-                  {players.length}/15
+                  {players.length}/30
                 </div>
               </div>
             </div>
 
             {/* Pílula de Regras Resumida */}
             <div className="px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 text-center font-mono text-[11px] text-slate-300">
-              {impostorCount} Impostor • {killCooldown}s Cooldown • {taskCount} Tasks • {discussionTime}s Disp.
+              {impostorCount} Impostor{impostorCount > 1 ? "es" : ""} • {killCooldown}s Cooldown • {taskCount} Tasks • {discussionTime}s Disp.
             </div>
 
             {/* Grid de Participantes (2 Colunas com cards compactos) */}
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs font-bold text-slate-400 px-1">
-                <span>TRIPULANTES NO LOBBY ({players.length})</span>
+                <span>TRIPULANTES NO LOBBY ({players.length}/30)</span>
                 <button
                   type="button"
+                  disabled={players.length >= 30}
                   onClick={() => {
+                    if (players.length >= 30) return;
                     const bot: Player = {
                       id: `bot_${Date.now()}`,
                       room_id: roomId,
@@ -1485,7 +1493,9 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
                     };
                     setPlayers((prev) => [...prev, bot]);
                   }}
-                  className="text-[10px] text-cyan-400 hover:underline font-mono cursor-pointer"
+                  className={`text-[10px] font-mono ${
+                    players.length >= 30 ? "text-slate-600 cursor-not-allowed" : "text-cyan-400 hover:underline cursor-pointer"
+                  }`}
                 >
                   + Adicionar Bot
                 </button>

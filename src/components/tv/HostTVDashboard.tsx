@@ -752,30 +752,35 @@ export function HostTVDashboard({ roomId, roomCode: propRoomCode, initialPlayers
 
         {/* COLUNA 3: MONITOR DE JOGADORES ATIVOS */}
         <div className="bg-slate-900/50 border border-slate-800/80 p-6 rounded-3xl flex flex-col backdrop-blur-md shadow-2xl">
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2.5 text-slate-200">
-            <Users className="w-5 h-5 text-cyan-400" /> Tripulantes e Integrantes
+          <h2 className="text-xl font-bold mb-4 flex items-center justify-between text-slate-200">
+            <span className="flex items-center gap-2.5">
+              <Users className="w-5 h-5 text-cyan-400" /> Tripulantes e Integrantes
+            </span>
+            <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300">
+              {players.length}/30
+            </span>
           </h2>
-          <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 max-h-[420px]">
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[420px]">
             {players.length > 0 ? (
               players.map((p) => (
                 <div
                   key={p.id}
-                  className={`p-3.5 rounded-2xl flex items-center justify-between transition-colors border ${
+                  className={`p-3 rounded-2xl flex items-center justify-between transition-colors border ${
                     p.is_alive
                       ? 'bg-slate-950/70 border-slate-800 text-slate-200'
                       : 'bg-slate-950/30 border-slate-900/60 text-slate-600 line-through'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <span
                       className="w-3.5 h-3.5 rounded-full border border-slate-900 shrink-0"
                       style={{ backgroundColor: p.color || '#3b82f6' }}
                     />
-                    <span className="font-bold text-sm tracking-wide">{p.nickname}</span>
+                    <span className="font-bold text-sm tracking-wide truncate">{p.nickname}</span>
                   </div>
 
                   <span
-                    className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-full uppercase ${
+                    className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${
                       p.is_alive
                         ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                         : 'bg-red-500/10 text-red-400 border border-red-500/30'

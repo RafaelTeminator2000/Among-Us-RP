@@ -19,6 +19,10 @@ export const AVATAR_COLORS = [
   { name: "Laranja", hex: "#f97316" },
   { name: "Amarelo", hex: "#eab308" },
   { name: "Roxo", hex: "#a855f7" },
+  { name: "Ciano", hex: "#06b6d4" },
+  { name: "Lima", hex: "#84cc16" },
+  { name: "Coral", hex: "#fb7185" },
+  { name: "Grafite", hex: "#475569" },
   { name: "Branco", hex: "#f8fafc" },
 ];
 
@@ -67,6 +71,16 @@ export const GuestJoinScreen: React.FC<GuestJoinProps> = ({
       if (room) {
         if (room.status !== "LOBBY") {
           throw new Error("A partida nesta sala já foi iniciada ou encerrada.");
+        }
+
+        // Verificar capacidade máxima da sala (Limite de 30 jogadores)
+        const { count, error: countError } = await supabase
+          .from("room_players")
+          .select("id", { count: "exact", head: true })
+          .eq("room_id", room.id);
+
+        if (!countError && count !== null && count >= 30) {
+          throw new Error("A sala atingiu o limite máximo de 30 jogadores.");
         }
 
         // Limpar registros anteriores deste jogador em salas antigas antes de entrar na nova sala

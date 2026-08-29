@@ -484,6 +484,7 @@ export default function RoomPage({ params }: RoomPageProps) {
   }, [mapData, taskCount, roomUuid, roomId, gameStartTime, playerId, playerName]);
   const [roleRevealToast, setRoleRevealToast] = useState<{
     role: 'CREWMATE' | 'IMPOSTOR';
+    fellowImpostors?: string[];
   } | null>(null);
   const [showTestDrawer, setShowTestDrawer] = useState<boolean>(false);
   const [isRoomClosed, setIsRoomClosed] = useState<boolean>(false);
@@ -908,8 +909,27 @@ export default function RoomPage({ params }: RoomPageProps) {
           if (typeof window !== 'undefined') {
             localStorage.setItem(`player_role_${roomId}`, newRole);
           }
-          setRoleRevealToast({ role: newRole });
-          setTimeout(() => setRoleRevealToast(null), 4000);
+
+          let fellowImpostorNames: string[] = [];
+          if (newRole === 'IMPOSTOR') {
+            const allPlayerList =
+              payload.players && payload.players.length > 0
+                ? payload.players
+                : allPlayers.map((p) => ({ id: p.id, player_name: p.nickname }));
+
+            fellowImpostorNames = Object.entries(payload.roles)
+              .filter(([pId, r]) => r === 'IMPOSTOR' && pId !== playerId)
+              .map(([pId]) => {
+                const found = allPlayerList.find((p: any) => p.id === pId) as any;
+                return found?.player_name || found?.nickname || found?.name || `Impostor #${pId.substring(0, 4)}`;
+              });
+          }
+
+          setRoleRevealToast({ role: newRole, fellowImpostors: fellowImpostorNames });
+          setTimeout(
+            () => setRoleRevealToast(null),
+            newRole === 'IMPOSTOR' && fellowImpostorNames.length > 0 ? 6500 : 4000
+          );
         }
 
         setAllPlayers((prev) =>
@@ -3546,25 +3566,56 @@ export default function RoomPage({ params }: RoomPageProps) {
 
       {/* Toast / Banner de Revelação do Novo Papel Secreto */}
       {roleRevealToast && (
-        <div className="fixed top-16 left-4 right-4 z-50 animate-bounce">
+        <div className="fixed top-16 left-4 right-4 z-50 animate-bounce font-sans select-none">
           <div
             className={`p-4 rounded-2xl border text-center shadow-2xl backdrop-blur-md ${
               roleRevealToast.role === 'IMPOSTOR'
-                ? 'bg-red-950/95 border-red-500 text-red-100 shadow-[0_0_30px_rgba(239,68,68,0.4)]'
-                : 'bg-emerald-950/95 border-emerald-500 text-emerald-100 shadow-[0_0_30px_rgba(16,185,129,0.4)]'
+                ? 'bg-red-950/95 border-red-500 text-red-100 shadow-[0_0_40px_rgba(239,68,68,0.6)]'
+                : 'bg-emerald-950/95 border-emerald-500 text-emerald-100 shadow-[0_0_40px_rgba(16,185,129,0.5)]'
             }`}
           >
-            <span className="text-[10px] font-black uppercase tracking-widest block opacity-80">
-              Nova Partida Iniciada • Seu Papel:
+            <span className="text-[10px] font-black uppercase tracking-widest block opacity-80 font-mono">
+              Nova Partida Iniciada • Seu Papel Secreto
             </span>
-            <span className="text-base font-black tracking-wider block mt-0.5">
-              {roleRevealToast.role === 'IMPOSTOR' ? '🔪 VOCÊ É O IMPOSTOR' : '🟢 VOCÊ É TRIPULANTE'}
+            <span className="text-xl font-black tracking-wider block mt-1 font-mono">
+              {roleRevealToast.role === 'IMPOSTOR' ? '🔪 VOCÊ É IMPOSTOR' : '🟢 VOCÊ É TRIPULANTE'}
             </span>
-            <p className="text-[11px] opacity-80 mt-1">
-              {roleRevealToast.role === 'IMPOSTOR'
-                ? 'Sabote a nave e elimine a tripulação sem ser descoberto!'
-                : 'Complete todas as suas tarefas e descubra o impostor!'}
-            </p>
+
+            {roleRevealToast.role === 'IMPOSTOR' && (
+              <>
+                {roleRevealToast.fellowImpostors && roleRevealToast.fellowImpostors.length > 0 ? (
+                  <div className="mt-2.5 pt-2.5 border-t border-red-800/80 space-y-1.5 animate-in fade-in">
+                    <span className="text-[11px] font-mono font-bold text-amber-300 block uppercase tracking-wide">
+                      🤝 SEU{roleRevealToast.fellowImpostors.length > 1 ? 'S' : ''} PARCEIRO{roleRevealToast.fellowImpostors.length > 1 ? 'S' : ''} DE EQUIPE:
+                    </span>
+                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                      {roleRevealToast.fellowImpostors.map((name, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2.5 py-1 rounded-xl bg-red-900/90 border border-red-400 text-white text-xs font-black shadow-sm flex items-center gap-1"
+                        >
+                          <span>🔪</span>
+                          <span>{name}</span>
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-red-200/90 mt-1">
+                      Coordenem suas ações e sabotagens para dominar a nave!
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs opacity-90 mt-1.5">
+                    Você é o único impostor a bordo. Sabote e elimine a tripulação sem ser descoberto!
+                  </p>
+                )}
+              </>
+            )}
+
+            {roleRevealToast.role === 'CREWMATE' && (
+              <p className="text-xs opacity-90 mt-1.5">
+                Complete todas as suas tarefas e descubra o impostor!
+              </p>
+            )}
           </div>
         </div>
       )}

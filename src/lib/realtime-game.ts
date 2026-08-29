@@ -43,6 +43,7 @@ export interface SabotageFixedPayload {
 export interface GameStartedPayload {
   status: string;
   roles?: Record<string, 'CREWMATE' | 'IMPOSTOR'>;
+  players?: Array<{ id: string; player_name?: string; nickname?: string; name?: string; role?: string; color_hex?: string; color?: string }>;
   rules?: any;
   timestamp: number;
 }

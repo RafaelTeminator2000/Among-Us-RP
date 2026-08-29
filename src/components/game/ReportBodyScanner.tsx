@@ -435,24 +435,6 @@ export const ReportBodyScanner: React.FC<ReportBodyProps> = ({
               <span>REPORTAR AGORA</span>
             </button>
           </form>
-
-          {/* Atalhos Rápidos para Teste */}
-          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => handleScanDeadPlayerQR('REPORT_BODY')}
-              className="flex-1 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono font-bold text-red-300 transition"
-            >
-              + Tag REPORT_BODY
-            </button>
-            <button
-              type="button"
-              onClick={() => handleScanDeadPlayerQR('p4')}
-              className="flex-1 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono font-bold text-emerald-300 transition"
-            >
-              + Tag Jogador (p4)
-            </button>
-          </div>
         </div>
       ) : (
         /* Câmera em Tempo Real com Retículo de Scanner */
